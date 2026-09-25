@@ -1,0 +1,52 @@
+# Competition data and large assets (not ours to publish; well over GitHub's 100 MB limit)
+student_resource/
+amazon_ml_intro.excalidraw
+
+# Local Claude plugin manifest
+.claude-plugin
+
+# Generated outputs (~93 MB per submission file)
+er/submissions/
+er/logs/
+*.out
+*.log
+
+# Data / model artifacts (kept in /scratch, never commit)
+*.tsv
+*.csv
+*.parquet
+*.feather
+*.arrow
+*.npy
+*.npz
+*.pkl
+*.pickle
+*.joblib
+*.pt
+*.pth
+*.bin
+*.safetensors
+*.ckpt
+*.onnx
+*.faiss
+*.zip
+*.tar
+*.tar.gz
+*.gz
+
+# Python
+__pycache__/
+*.py[cod]
+.ipynb_checkpoints/
+.venv/
+venv/
+envs/
+.env
+
+# OS / editor junk
+__MACOSX/
+.DS_Store
+._*
+.vscode/
+.idea/
+*.swp
