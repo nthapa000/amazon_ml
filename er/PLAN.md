@@ -31,10 +31,10 @@ Best so far: u4 OOF 0.98517 (tsim) -> submissions/u4. Versions + submissions: VE
 - [ ] P6. Freeze ~18 h before deadline; consolidated run_all.sh end-to-end rerun; package zip
 - [ ] P7. (Phase 3) Bigger multilingual cross-encoder BAAI/bge-reranker-base (MIT, 278M), raw text, 2 ep -> c3 = best c2 + ceb  [running, job 41057]
 - [x] P8. Error review of c2 -> c4 (prefix-ambiguity + source-aware siblings): 0.98783 (+0.00007, below bar, not adopted)
-- [ ] P9. Entity-level gate P(no match) (targets 25% of loss: predicted-empty + singleton FP) + XGBoost member + OOF-weighted blend
-- [ ] P10. ANN recall probe: e5-small (MIT) embeddings of name|address, top-20 per country; GO only if >= 15% of the 118k blocked misses recovered
-- [ ] P11. Optional, guarded: France adaptation (pseudo-labels from confident test pairs incl. France) and test-side transliteration-dict extension; accept only if tsim OOF does not drop
-- [ ] P12. Freeze ~18 h before deadline -> consolidated run_all.sh end-to-end rerun from raw TSVs -> final zip (P6)
+- [~] P9. Gate: +0.00001 (not adopted); XGBoost c2x 0.98778 (~c2); blend c2+c2x pending
+- [~] P10. ANN probe GO: top-3 recovers 43.5% of blocked misses (51.4k links) -> integrating (chain: ann test -> ka features -> w1ann -> ctx/sup -> cemka -> c5)
+- [~] P11. FRANCE: LB 0.982 vs OOF 0.9878 -> France normalization fixes (dept->region, N°, hyphens, ordinals, legal) in consolidated run 'fin'; probe c6_noFR prepared. (was: Optional, guarded: France adaptation (pseudo-labels from confident test pairs incl. France) and test-side transliteration-dict extension; accept only if tsim OOF does not drop
+- [~] P12. Consolidated end-to-end run from raw TSVs started 20:55 (jobs/final.dag -> er_final), ETA ~09:00-10:00 Sep 26; then final zip
 Guard rails: fixed folds / tsim split; all stacking inputs OOF; accept a lever only if gain > max(0.0001, 2 x seed noise); LB = sanity only.
 
 ---

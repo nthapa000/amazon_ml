@@ -69,6 +69,8 @@ STREET_FR = {
     'hle': 'halle', 'za': 'zone', 'zi': 'zone', 'zac': 'zone', 'mte': 'montee', 'pass': 'passage',
     'bis': 'bis', 'ter': 'ter', 'gal': 'general', 'gen': 'general', 'mal': 'marechal', 'mar': 'marechal',
     'pdt': 'president', 'prof': 'professeur', 'cdt': 'commandant', 'lt': 'lieutenant', 'cte': 'comte',
+    'no': '', 'num': '', 'numero': '', 'ndeg': '', 'psg': 'passage', 'appt': 'appartement', 'app': 'appartement',
+    'bat': 'batiment', 'bt': 'batiment', 'esc': 'escalier', 'rdc': 'rez de chaussee',
 }
 US_STATES = {
     'al': 'alabama', 'ak': 'alaska', 'az': 'arizona', 'ar': 'arkansas', 'ca': 'california', 'co': 'colorado',
@@ -94,6 +96,34 @@ IN_STATES = {
     'orissa': 'odisha', 'uttaranchal': 'uttarakhand', 'pondicherry': 'puducherry',
 }
 NULLS = {'null', 'none', 'nan', 'na', 'n/a', 'nil', 'unknown'}
+
+# France (test-only country): departments -> region, so 'Bordeaux, Gironde' and 'Bordeaux, Nouvelle-Aquitaine' agree
+# (the same role US_STATES / IN_STATES play). Keys are hyphen-free, accent-free whole address components.
+FR_REGIONS = {'hauts de france', 'nouvelle aquitaine', 'pays de la loire', 'ile de france', 'bretagne', 'normandie',
+              'grand est', 'occitanie', 'provence alpes cote d azur', 'auvergne rhone alpes', 'centre val de loire',
+              'bourgogne franche comte', 'corse'}
+_FR_DEP = {
+    'hauts de france': 'nord|pas de calais|aisne|oise|somme',
+    'nouvelle aquitaine': 'gironde|charente|charente maritime|correze|creuse|deux sevres|dordogne|landes|'
+                          'lot et garonne|pyrenees atlantiques|haute vienne',
+    'pays de la loire': 'loire atlantique|maine et loire|mayenne|sarthe|vendee',
+    'ile de france': 'seine et marne|yvelines|essonne|hauts de seine|seine saint denis|val de marne|val d oise',
+    'bretagne': 'finistere|cotes d armor|ille et vilaine|morbihan',
+    'normandie': 'calvados|eure|orne|seine maritime',
+    'grand est': 'ardennes|aube|haute marne|meurthe et moselle|meuse|moselle|bas rhin|haut rhin|vosges',
+    'occitanie': 'ariege|aude|aveyron|gard|haute garonne|gers|herault|lozere|hautes pyrenees|pyrenees orientales|'
+                 'tarn|tarn et garonne',
+    'provence alpes cote d azur': 'alpes de haute provence|hautes alpes|alpes maritimes|bouches du rhone|vaucluse',
+    'auvergne rhone alpes': 'ain|allier|ardeche|cantal|drome|isere|haute loire|puy de dome|savoie|haute savoie',
+    'centre val de loire': 'cher|eure et loir|indre|indre et loire|loir et cher|loiret',
+    'bourgogne franche comte': 'cote d or|doubs|jura|nievre|haute saone|saone et loire|yonne|territoire de belfort',
+    'corse': 'corse du sud|haute corse'}
+FR_DEPT = {d: r for r, ds in _FR_DEP.items() for d in ds.split('|')}      # city-named departments (paris...) left out
+FR_LEGAL = {'ei': 'ei', 'eirl': 'eirl', 'gie': 'gie', 'scp': 'scp', 'sca': 'sca', 'scs': 'scs', 'sep': 'sep',
+            'sem': 'sem', 'selas': 'selas', 'selafa': 'selafa', 'sarlu': 'sarlu'}
+FR_NAME = {'ets': 'etablissements', 'etabl': 'etablissements', 'cie': 'compagnie', 'assoc': 'association',
+           'asso': 'association', 'st': 'saint', 'ste': 'sainte'}
+FR_ORD_RE = re.compile(r'(?<=\d)(er|ere|eme|e)$')
 
 
 def street_map(ctry):
@@ -150,9 +180,11 @@ def split_name(s):
     return s, alt, dom
 
 
-def clean_name_toks(s):
+def clean_name_toks(s, fr=False):
     """tokens of a name, punctuation stripped, native-script tokens kept."""
     s = s.replace('&', ' and ').replace('+', ' and ')
+    if fr:                                               # French elisions: l'atelier -> l atelier (l/d are stop words)
+        s = re.sub(r"['’]", ' ', s)
     s = re.sub(r'\d[\d\s\-]{6,}\d', ' ', s)                 # phone numbers
     s = re.sub(r"(?<=[\w\u0900-\u0DFF])[.'’](?=[\w\u0900-\u0DFF])", '', s)                 # l.l.c -> llc, o'neil -> oneil
     s = re.sub(r"[^\w\s\u0900-\u0DFF]", ' ', s)
@@ -175,31 +207,33 @@ def map_tok(t, tdict):
     return latin(t), 0
 
 
-def norm_name(raw, tdict=None):
+def norm_name(raw, tdict=None, ctry=None):
     """-> dict(nm, core, legal, alt, dom, nind, nunk)."""
+    fr = ctry == 'France'
+    lg = {**LEGAL, **FR_LEGAL} if fr else LEGAL
     s, alt, dom = split_name(raw)
     out, legal, nind, nunk = [], [], 0, 0
-    for t in clean_name_toks(s):
+    for t in clean_name_toks(s, fr):
         v, k = map_tok(t, tdict)
         nind += k > 0
         nunk += k == 2
         for w in v.split():
             w = fix_leet(w)
-            out.append(w)
+            out.append(FR_NAME.get(w, w) if fr else w)
     # multi-token legal: 'l l c' , 'p v t'
     j = ' '.join(out)
     j = re.sub(r'\b(l l c|l l p|p l l c|s a s|s a r l|s a|p v t|l t d|i n c)\b', lambda m: m.group(0).replace(' ', ''), j)
     toks = j.split()
     core = []
     for w in toks:
-        if w in LEGAL:
-            legal.append(LEGAL[w])
+        if w in lg:
+            legal.append(lg[w])
         elif w not in STOP:
             core.append(w)
-    nm = ' '.join(LEGAL.get(w, w) for w in toks if w not in STOP)
+    nm = ' '.join(lg.get(w, w) for w in toks if w not in STOP)
     alt_t = []
     if alt:
-        for t in clean_name_toks(alt):
+        for t in clean_name_toks(alt, fr):
             alt_t.append(map_tok(t, tdict)[0])
     if not core and dom:
         core = [dom]
@@ -210,15 +244,20 @@ def norm_name(raw, tdict=None):
 NUM_RE = re.compile(r'\d+')
 
 
-def norm_num(t):
+def norm_num(t, fr=False):
     """house-number canon: strip leading zeros, drop ordinal suffix, keep letter suffix."""
     t = re.sub(r'(?<=\d)(st|nd|rd|th)$', '', t)
+    if fr:
+        t = FR_ORD_RE.sub('', t)                         # 1er, 2e, 3eme
     return NUM_RE.sub(lambda m: str(int(m.group(0))), t)
 
 
 def norm_addr(raw, ctry, tdict=None):
     """-> dict(ad, hn, pc, state, comps). hn = numeric tokens (canon), pc = 5/6-digit postal codes."""
     s = clean_addr(raw)
+    fr = ctry == 'France'
+    if fr:                                               # 'N°24' / 'n° 24' -> '24'
+        s = re.sub(r'\bn\s*°\s*', ' ', s).replace('°', ' ')
     smap, states = street_map(ctry)
     comps, toks_all, nums, pcs = [], [], [], []
     for comp in s.split(','):
@@ -241,19 +280,29 @@ def norm_addr(raw, ctry, tdict=None):
                     for piece in re.split(r'[-/]', w):
                         if not piece:
                             continue
-                        pn = norm_num(piece)
+                        pn = norm_num(piece, fr)
                         if pn.isdigit() and len(pn) in (5, 6) and len(piece) in (5, 6) and ctry != 'US':
                             pcs.append(pn)
                         elif pn.isdigit() and len(pn) >= 7:
                             continue                        # phone-like
                         nums.append(pn)
-                    ct.append(norm_num(w))
+                    ct.append(norm_num(w, fr))
+                elif fr:                                  # saint-nazaire -> saint nazaire ; d'espagne -> espagne
+                    for part in re.split(r"[-'’]", w):
+                        part = smap.get(part, part)
+                        if part and len(part) > 1:
+                            ct.extend(part.split())
                 else:
                     w = smap.get(w, w)
                     if w:
                         ct.extend(w.split())
         if ct:
-            comps.append(' '.join(ct))
+            c = ' '.join(ct)
+            if fr:
+                c = FR_DEPT.get(c, c)                     # department -> region
+                if c in comps:                            # 'Nord' + 'Hauts-de-France' -> keep one
+                    continue
+            comps.append(c)
             toks_all.extend(ct)
     # state: last-ish comp that is a known state abbreviation or full name
     state = ''
@@ -267,6 +316,8 @@ def norm_addr(raw, ctry, tdict=None):
             break
     if state:
         comps = [states.get(c, c) for c in comps]
+    if fr:
+        state = next((c for c in reversed(comps) if c in FR_REGIONS), '')
     return dict(ad=' , '.join(comps), hn=' '.join(dict.fromkeys(nums)), pc=' '.join(dict.fromkeys(pcs)),
                 state=state)
 

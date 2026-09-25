@@ -128,6 +128,9 @@ def main(kv):
         model, tok = train(mname, trd, epochs=int(kv.get('epochs', 1)), bs=int(kv.get('bs', 256)),
                            lr=float(kv.get('lr', 4e-5)))
         print(f'half {h} trained {time.time() - t0:.0f}s', flush=True)
+        md = f"{os.environ.get('ER_MODELS', W + '/models')}/{kv.get('name', 'ce')}_{tag}_h{h}"
+        model.save_pretrained(md)                          # keep weights: test pairs can be re-scored later
+        tok.save_pretrained(md)
         vb = attach(band.filter(pl.col('h') == h).select('id1', 'id2'), tx)
         vb = vb.with_columns(ce=pl.Series(predict(model, tok, vb, int(kv.get('pbs', 1024)))))
         res.append(vb.select('id1', 'id2', 'ce'))

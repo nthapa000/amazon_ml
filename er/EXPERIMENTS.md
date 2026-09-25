@@ -61,6 +61,24 @@ Phase 2 (after w2):
 - c4: c2 + xf2 prefix-ambiguity features + sup2 (source-aware sibling counts) -> 0.98783 (US 0.98773, India 0.98798), +0.00007 vs c2 -> below bar, not released (prefix features not in top-20 gain; truncated-name misses mostly inherently ambiguous).
 - CE band coverage check (c2 errors vs stage-1 band 0.003-0.997): FPs 93% in band (562+63 above 0.997), in-candidate FNs 98.5% in band -> widening the CE band not needed.
 - gate (entity-level P(no match), LightGBM 5-fold OOF on c2 scores + entity features): AUC 0.99935, but best g=0.85 gives 0.987777 vs 0.987765 (+0.00001) -> not adopted; empty-list rule already near-optimal.
+- c2x: XGBoost stage-2 member (depth 10, lr .05, same c2 features) -> 0.98778 (on par with c2); blend step failed (comma in sbatch args) -> rerun in chain.
+- c2L: c2 without legacy CE features (ce, ce12e2, cev) -> 0.98763 (-0.00013 vs c2) -> legacy CEs still add value; keep for now.
+- ANN recall probe (multilingual-e5-small, MIT; normalized 'core | address'; top-k S1 per S2/S3 record within country, GPU exact search), tsim vs base kx:
+  top-1 recovers 43,958 / 118,210 base-missed true links (37.2%) at 1.0 new pair per S1; top-3 51,398 (43.5%) at 9.0/S1;
+  top-5 55,011 (46.5%) at 18.3/S1; top-10 60,684 (51.3%) at 43.6/S1  -> GO (bar was 15%). Integrating top-3 ("ka" = kx + ANN) with its own stage-1 (w1ann).
+- ceb: BAAI/bge-reranker-base (MIT, 278M, XLM-R base) raw-text CE, 2 ep, w1 band: band AUC 0.9804 (best CE; cem 0.9782). -> c6 = c2 + ceb running.
+- ANN chain: step 2 (er_kaprep 41084) died after 2 s with signal exit 0:53 before writing a log (transient node issue); resubmitted 20:23 as 41114, running normally.
+- c6: c2 + ceb (bge-reranker-base raw-text CE) -> 0.98790 (US 0.98781, India 0.98804, F0.4 0.99013), +0.00014 vs c2 -> released. ceb gain .036 > cem .014.
+- w2 vs c2 on test: 57,590 S1 rows differ (3.3%); France 32,157 (12% of FR rows); c2 makes 2.4% fewer FR links. Manual review: most FR links dropped by c2 are
+  same-address 'one generic French word swapped' distractors (Nantes College/Amicale, Lille Ecole/Sportive, Don Ecole/Pharmacie) -> precision gain from raw-text multilingual CE.
+- LEADERBOARD: c2 = 0.982 (OOF tsim 0.98776) -> gap ~0.006. US/India test ~ tsim (adversarial AUC .59-.64) -> France (15%, unseen) likely ~0.95.
+- France EDA (test inputs): (1) 'N°24' -> 'ndeg24' breaks house numbers (23.7k FR S2/S3 records); (2) S1 uses region (86.6%) but S2/S3 use department
+  ~28% (Gironde vs Nouvelle-Aquitaine) -> lower address similarity, no state; (3) hyphenated places (Saint-Nazaire vs SAINT NAZAIRE) in ~47% of FR S2/S3;
+  (4) Ets/EI legal+abbrev; (5) French ordinals 1er/2e/3eme. Fix: France-only rules in norm.py (dept->region + state, N° strip, hyphen/apostrophe split,
+  ordinals, FR legal forms, name synonyms). Verified: 0 of 300,000 US/India records change; 76.8% of FR S2 records change.
+- Probe prepared: submissions/probe_c6_noFR (c6 with FR rows emptied) -> F_FR ~= (LB(c6) - LB(probe)) / 0.15 + 0.058.
+- Consolidated end-to-end pipeline (jobs/final.dag, work dir er_final) launched 20:55 with FR fixes: K100 -> stage-1 a1 -> expansion -> kx -> ANN top-3 -> ka;
+  stage-1 b1 (kx) + b1ann -> ctx/sup; CEs cev (a1 band, normalized), cem + ceb (union band, raw); cascade stage 2 'fin'. CE weights now saved.
 - Official validator with --check-ids on w2a (matching + 2.1 GB candidate file): PASS.
 
 Notes

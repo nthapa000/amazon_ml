@@ -13,3 +13,4 @@ OOF = macro F0.5 (split column says which: train = all train S1, tsim = test-lik
 | w2a | 2026-09-25T13:10 | w2 trained on 50% of S1 (frac .5, lr .05, seed 1) | tsim | 0.98670 | 0.98643 | 0.98711 | 0.98903 | 5801972 |  | /scratch/m25csa019/versions/w2a |
 | c1a | 2026-09-25T14:48 | cascade stage-2 (w1 p>=1e-3, 8.0M pairs), 100% of S1, lr .05, seed 1 | tsim | 0.98685 | 0.98662 | 0.98719 | 0.98921 | 5797106 |  | /scratch/m25csa019/versions/c1a |
 | c2 | 2026-09-25T15:27 | cascade + sibling-support features + multilingual raw-text cross-encoder (mmarco-mMiniLMv2) | tsim | 0.98776 | 0.98766 | 0.98792 | 0.99000 | 5781402 |  | /scratch/m25csa019/versions/c2 |
+| c6 | 2026-09-25T20:38 | c2 + bigger multilingual raw-text cross-encoder (bge-reranker-base / MIT / 278M) | tsim | 0.98790 | 0.98781 | 0.98804 | 0.99013 | 5776984 |  | /scratch/m25csa019/versions/c6 |

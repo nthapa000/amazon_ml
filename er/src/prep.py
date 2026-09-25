@@ -49,7 +49,7 @@ def _init(tdp):
 def _work(rows):
     out = []
     for i, n, a, c in rows:
-        r = norm.norm_name(n, _TD)
+        r = norm.norm_name(n, _TD, c)
         r.update(norm.norm_addr(a, c, _TD))
         r['id'] = i
         out.append(r)

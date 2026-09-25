@@ -37,7 +37,7 @@ def combine(kind, tags, w):
 
 
 def main(kv):
-    tags, out, split = kv['tags'].split(','), kv['out'], kv.get('split', 'tsim')
+    tags, out, split = kv['tags'].replace('+', ',').split(','), kv['out'], kv.get('split', 'tsim')   # '+' avoids sbatch comma splitting
     cfg = dict(method='ef', margin=float(kv.get('margin', 0.2)), m=0.0, a=1.0)
     s1 = pl.read_parquet(f'{W}/n_{split}_s1.parquet', columns=['id', 'country']).select(enc('id').alias('s1'), 'country')
     gt = pl.read_parquet(gt_path(split)).select(enc('s1').alias('s1'), enc('id2').alias('id2'))
