@@ -125,13 +125,14 @@ def main(kv):
         e = src.filter((pl.col('p') <= lo) | (pl.col('p') >= hi))
         e = e.sample(min(e.height, int(ntr * 0.15)), seed=h)
         trd = attach(pl.concat([b, e]).select('id1', 'id2', 'y'), tx)
-        model, tok = train(mname, trd, epochs=int(kv.get('epochs', 1)))
+        model, tok = train(mname, trd, epochs=int(kv.get('epochs', 1)), bs=int(kv.get('bs', 256)),
+                           lr=float(kv.get('lr', 4e-5)))
         print(f'half {h} trained {time.time() - t0:.0f}s', flush=True)
         vb = attach(band.filter(pl.col('h') == h).select('id1', 'id2'), tx)
-        vb = vb.with_columns(ce=pl.Series(predict(model, tok, vb)))
+        vb = vb.with_columns(ce=pl.Series(predict(model, tok, vb, int(kv.get('pbs', 1024)))))
         res.append(vb.select('id1', 'id2', 'ce'))
         print(f'half {h} oof scored {vb.height} {time.time() - t0:.0f}s', flush=True)
-        pt += predict(model, tok, tband) / 2
+        pt += predict(model, tok, tband, int(kv.get('pbs', 1024))) / 2
         print(f'half {h} test scored {time.time() - t0:.0f}s', flush=True)
         del model
         torch.cuda.empty_cache()

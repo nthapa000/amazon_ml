@@ -33,13 +33,17 @@ def pick_thr(d, t):
     return d.filter(pl.col('p') >= t).select('id1', 'id2')
 
 
-def pick_ef(d, m=0.0, a=1.0, floor=0.02):
-    """expected-F: per S1 choose top-k maximizing (1+b2)C_k/(b2(S+m)+k), or empty if P(no match) is higher."""
+def pick_ef(d, m=0.0, a=1.0, floor=0.02, gate=None, g=1.0):
+    """expected-F: per S1 choose top-k maximizing (1+b2)C_k/(b2(S+m)+k), or empty if P(no match) is higher.
+    gate: optional (id1, q0) entity-level P(no match) (gate.py); replaces the independence estimate prod(1-p)."""
     b2 = B * B
     d = d.with_columns(q=(pl.col('p') ** a).clip(1e-6, 1 - 1e-6)).filter(pl.col('q') >= floor)
     d = d.sort(['id1', 'q'], descending=[False, True])
     d = d.with_columns(k=pl.col('q').cum_count().over('id1'), C=pl.col('q').cum_sum().over('id1'),
                        S=pl.col('q').sum().over('id1'), e0=(1 - pl.col('q')).log().sum().over('id1').exp())
+    if gate is not None:
+        d = d.join(gate.select('id1', 'q0'), on='id1', how='left').with_columns(
+            e0=pl.coalesce(pl.col('q0') * g, pl.col('e0'))).drop('q0')
     d = d.with_columns(ef=(1 + b2) * pl.col('C') / (b2 * (pl.col('S') + m) + pl.col('k')))
     d = d.with_columns(efm=pl.col('ef').max().over('id1'))
     kbest = d.filter(pl.col('ef') == pl.col('efm')).group_by('id1').agg(pl.col('k').min().alias('kb'))
@@ -90,11 +94,11 @@ def tune(tag, split='train'):
     json.dump(dict(cfg, oof=sc, split=split), open(f'{W}/dec_{tag}.json', 'w'))
 
 
-def select(d, cfg):
+def select(d, cfg, gate=None):
     d = one2one(d, cfg.get('margin', 0.0))
     if cfg['method'] == 'thr':
         return pick_thr(d, cfg['t'])
-    return pick_ef(d, cfg['m'], cfg['a'])
+    return pick_ef(d, cfg['m'], cfg['a'], gate=gate if cfg.get('gate') else None, g=cfg.get('g', 1.0))
 
 
 def write_lists(path, s1ids, sel, col):
@@ -109,7 +113,8 @@ def apply(tag, outdir, cand):
     os.makedirs(outdir, exist_ok=True)
     cfg = json.load(open(f'{W}/dec_{tag}.json'))
     p = pl.read_parquet(f'{W}/pte_{tag}.parquet')
-    sel = select(p, cfg)
+    gate = pl.read_parquet(f'{W}/{cfg["gate"]}_test.parquet') if cfg.get('gate') else None
+    sel = select(p, cfg, gate)
     s1 = pl.read_parquet(f'{W}/n_test_s1.parquet', columns=['id', 'country']).rename({'id': 'source1_entity_id'})
     m = write_lists(f'{outdir}/matching_results.tsv', s1.select('source1_entity_id'), sel, 'matched_entity_ids')
     c = pl.read_parquet(f'{W}/{cand}.parquet', columns=['id1', 'id2'])

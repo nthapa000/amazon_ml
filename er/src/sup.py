@@ -67,9 +67,10 @@ def main(kv):
                                             chunksize=2)))
             print('  compared', j + len(rows), f'{time.time() - t0:.0f}s', flush=True)
     X = np.vstack(parts)
-    f = t.select('id1', 'id2').with_columns([pl.Series(n, X[:, i]) for i, n in enumerate(NAMES)])
+    f = t.select('id1', 'id2', 'sib').with_columns([pl.Series(n, X[:, i]) for i, n in enumerate(NAMES)])
     agg = f.group_by('id1', 'id2').agg(
         pl.len().cast(pl.Int16).alias('s_n'),
+        ((pl.col('sib') // 10_000_000_000) == (pl.col('id2') // 10_000_000_000)).sum().cast(pl.Int16).alias('s_nsame'),
         pl.col('s_nts').max().alias('s_nts_max'), pl.col('s_nts').mean().alias('s_nts_mean'),
         pl.col('s_njw').max().alias('s_njw_max'),
         pl.col('s_ats').max().alias('s_ats_max'), pl.col('s_ats').mean().alias('s_ats_mean'),
@@ -77,8 +78,8 @@ def main(kv):
         pl.col('s_rn').max().alias('s_rn_max'), pl.col('s_rneq').max().alias('s_rneq_any'),
         pl.col('s_ra').max().alias('s_ra_max'), pl.col('s_raeq').max().alias('s_raeq_any'),
         pl.min_horizontal('s_nts', pl.col('s_ats').clip(0)).max().alias('s_both_max'))
-    out = pairs.join(agg, on=['id1', 'id2'], how='left').with_columns(pl.col('s_n').fill_null(0))
-    out.write_parquet(f'{W}/sup_{split}.parquet')
+    out = pairs.join(agg, on=['id1', 'id2'], how='left').with_columns(pl.col('s_n').fill_null(0), pl.col('s_nsame').fill_null(0))
+    out.write_parquet(f'{W}/{kv.get("out", "sup_" + split)}.parquet')
     print('written', out.height, f'{time.time() - t0:.0f}s', flush=True)
     print(out.drop('id1', 'id2').describe())
 

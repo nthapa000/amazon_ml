@@ -3,12 +3,14 @@ sys.path.insert(0, '/csehome/m25csa019/amazon_ml/er/src')
 import polars as pl
 from block import enc
 W = '/scratch/m25csa019/er_work'
+kv = dict(a.split('=', 1) for a in sys.argv[1:])
+TAG, SP = kv.get('tag', 's1'), kv.get('split', 'train')
 cols = ['id', 'name', 'addr', 'country']
-s1 = pl.read_parquet(f'{W}/n_train_s1.parquet', columns=cols).with_columns(id=enc('id'))
-s23 = pl.concat([pl.read_parquet(f'{W}/n_train_s{k}.parquet', columns=cols) for k in (2, 3)]).with_columns(id=enc('id'))
-o = pl.read_parquet(f'{W}/oof_s1.parquet')
-fn = pl.read_parquet(f'{W}/ana_fn_s1.parquet').filter(~pl.col('blocked')).join(o, on=['id1', 'id2'])
-fp = pl.read_parquet(f'{W}/ana_fp_s1.parquet').join(o, on=['id1', 'id2'])
+s1 = pl.read_parquet(f'{W}/n_{SP}_s1.parquet', columns=cols).with_columns(id=enc('id'))
+s23 = pl.concat([pl.read_parquet(f'{W}/n_{SP}_s{k}.parquet', columns=cols) for k in (2, 3)]).with_columns(id=enc('id'))
+o = pl.read_parquet(f'{W}/oof_{TAG}.parquet')
+fn = pl.read_parquet(f'{W}/ana_fn_{TAG}.parquet').filter(~pl.col('blocked')).join(o, on=['id1', 'id2'])
+fp = pl.read_parquet(f'{W}/ana_fp_{TAG}.parquet').join(o, on=['id1', 'id2'])
 def show(d, n, title, extra=None):
     d = d.sample(n, seed=5).join(s1.rename({'id': 'id1'}), on='id1').join(s23.rename({'id': 'id2'}), on='id2', suffix='2')
     if extra is not None:

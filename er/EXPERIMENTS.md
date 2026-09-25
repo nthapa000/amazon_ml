@@ -51,6 +51,16 @@ Phase 2 (after w2):
 - cem: multilingual raw-text cross-encoder (mmarco-mMiniLMv2-L12, Apache-2.0), 2 ep on w1 band: band AUC 0.9782 vs stage-1 0.9716 (best CE so far).
 - sup: sibling-support features: 8.0M tsim / 8.7M test pairs, 25.2M / 27.4M sibling comparisons, mean 3.15 siblings.
 - exp2: expansion round 2 (from w2a OOF, base kx): recovers 689 / 118,210 missed (0.6%), +2.5M pairs -> NO-GO. K200 ceiling gain (+0.0004) also below the +0.0005 bar -> step 4 dropped.
+- c2s: c1a + sibling-support features (sup) -> 0.98714 (US 0.98698, India 0.98740), +0.00029 vs c1a.
+- c2m: c1a + multilingual raw-text CE (cem) -> 0.98757 (US 0.98741, India 0.98781), +0.00072 vs c1a.
+- c2: c1a + sup + cem -> 0.98776 (US 0.98766, India 0.98792, F0.4 0.99000), +0.00091 vs c1a -> released. Top gain: c_marg2 .47, c_p .27, c_gap1 .13, cem .045.
+- Error review c2 (tsim): loss 21,869; precision 0.99846, recall 0.96696; singletons correct 99,092/99,652 (99.4%); missed: blocked 118,988, below-threshold 85,406.
+  Patterns: (1) low-p misses dominated by NAME TRUNCATION (S2/S3 keeps first words: 'Green Creative Dynamics' -> 'Green Creative'), usually no address;
+  (2) near misses: exact name + empty address where same-name S1/orphans exist (largely inherent); (3) FPs: same-name S1 in other states, invented names at shared addresses (inherent).
+  -> c4: prefix-ambiguity features (xf2: p_is, p_rev, p_n1 = #S1 starting with the prefix, p_nc) + source-aware sibling counts (sup2: s_nsame).
+- c4: c2 + xf2 prefix-ambiguity features + sup2 (source-aware sibling counts) -> 0.98783 (US 0.98773, India 0.98798), +0.00007 vs c2 -> below bar, not released (prefix features not in top-20 gain; truncated-name misses mostly inherently ambiguous).
+- CE band coverage check (c2 errors vs stage-1 band 0.003-0.997): FPs 93% in band (562+63 above 0.997), in-candidate FNs 98.5% in band -> widening the CE band not needed.
+- gate (entity-level P(no match), LightGBM 5-fold OOF on c2 scores + entity features): AUC 0.99935, but best g=0.85 gives 0.987777 vs 0.987765 (+0.00001) -> not adopted; empty-list rule already near-optimal.
 - Official validator with --check-ids on w2a (matching + 2.1 GB candidate file): PASS.
 
 Notes

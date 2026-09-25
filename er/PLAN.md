@@ -24,11 +24,17 @@ Best so far: u4 OOF 0.98517 (tsim) -> submissions/u4. Versions + submissions: VE
 ## Phase 2 status: improvement plan after w2 (full plan: section "Phase 2 plan" below)
 - [x] P0. w2a released (OOF 0.98670, sub7); w3a 0.98676 (+0.00006, not adopted); err analysis w2 done; cascade parity exact; noise floor -> from c1a/c1b
 - [x] P1. Cascade stage 2: c1a 0.98685 (+0.00015 vs w2a), released; seed noise 0.000004
-- [~] P2. Sibling support features computed; ablation c2s running
-- [~] P3. Multilingual CE done (band AUC 0.9782); ablation c2m running
+- [x] P2. Sibling support: c2s 0.98714 (+0.00029)
+- [x] P3. Multilingual CE: c2m 0.98757 (+0.00072); combined c2 0.98776 (+0.00091) released
 - [x] P4. Recall: NO-GO (expansion round 2 recovers 0.6% of misses; K200 +0.0004 < bar)
 - [ ] P5. Optuna + XGBoost blend (+ optional entity gate)
 - [ ] P6. Freeze ~18 h before deadline; consolidated run_all.sh end-to-end rerun; package zip
+- [ ] P7. (Phase 3) Bigger multilingual cross-encoder BAAI/bge-reranker-base (MIT, 278M), raw text, 2 ep -> c3 = best c2 + ceb  [running, job 41057]
+- [x] P8. Error review of c2 -> c4 (prefix-ambiguity + source-aware siblings): 0.98783 (+0.00007, below bar, not adopted)
+- [ ] P9. Entity-level gate P(no match) (targets 25% of loss: predicted-empty + singleton FP) + XGBoost member + OOF-weighted blend
+- [ ] P10. ANN recall probe: e5-small (MIT) embeddings of name|address, top-20 per country; GO only if >= 15% of the 118k blocked misses recovered
+- [ ] P11. Optional, guarded: France adaptation (pseudo-labels from confident test pairs incl. France) and test-side transliteration-dict extension; accept only if tsim OOF does not drop
+- [ ] P12. Freeze ~18 h before deadline -> consolidated run_all.sh end-to-end rerun from raw TSVs -> final zip (P6)
 Guard rails: fixed folds / tsim split; all stacking inputs OOF; accept a lever only if gain > max(0.0001, 2 x seed noise); LB = sanity only.
 
 ---
