@@ -11,3 +11,4 @@ OOF = macro F0.5 (split column says which: train = all train S1, tsim = test-lik
 | u4 | 2026-09-25T09:24 | u3 with 2-epoch L12 cross-encoder (band AUC 0.977) | tsim | 0.98517 | 0.98475 | 0.98580 | 0.98785 | 5771704 |  | /scratch/m25csa019/versions/u4 |
 | w2 | 2026-09-25T11:49 | K100 caps + sibling expansion (kx) + stage-2 ctx(w1) + cross-encoders (K100 band + t1 bands) | tsim | 0.98634 | 0.98599 | 0.98686 | 0.98880 | 5787290 |  | /scratch/m25csa019/versions/w2 |
 | w2a | 2026-09-25T13:10 | w2 trained on 50% of S1 (frac .5, lr .05, seed 1) | tsim | 0.98670 | 0.98643 | 0.98711 | 0.98903 | 5801972 |  | /scratch/m25csa019/versions/w2a |
+| c1a | 2026-09-25T14:48 | cascade stage-2 (w1 p>=1e-3, 8.0M pairs), 100% of S1, lr .05, seed 1 | tsim | 0.98685 | 0.98662 | 0.98719 | 0.98921 | 5797106 |  | /scratch/m25csa019/versions/c1a |
