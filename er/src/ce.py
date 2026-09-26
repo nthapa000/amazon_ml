@@ -117,7 +117,8 @@ def main(kv):
     tband = attach(tband.select('id1', 'id2'), txt)
     del txt
     res, pt = [], np.zeros(tband.height, dtype=np.float32)
-    for h in (0, 1):
+    hs = (int(kv['half']),) if 'half' in kv else (0, 1)  # half=h: one half per job (2 GPUs in parallel), then merge=1
+    for h in hs:
         t0 = time.time()
         src = o.filter(pl.col('h') != h)
         b = src.filter((pl.col('p') > lo) & (pl.col('p') < hi))
@@ -136,19 +137,34 @@ def main(kv):
         vb = vb.with_columns(ce=pl.Series(predict(model, tok, vb, int(kv.get('pbs', 1024)))))
         res.append(vb.select('id1', 'id2', 'ce'))
         print(f'half {h} oof scored {vb.height} {time.time() - t0:.0f}s', flush=True)
-        pt += predict(model, tok, tband, int(kv.get('pbs', 1024))) / 2
+        pt += predict(model, tok, tband, int(kv.get('pbs', 1024))) / len(hs)
         print(f'half {h} test scored {time.time() - t0:.0f}s', flush=True)
         del model
         torch.cuda.empty_cache()
     oo = pl.concat(res)
     nm = kv.get('name', 'ce')
-    oo.rename({'ce': nm}).write_parquet(f'{W}/{nm}_{tag}_train.parquet')
-    tband.select('id1', 'id2').with_columns(pl.Series(nm, pt)).write_parquet(f'{W}/{nm}_{tag}_test.parquet')
+    sfx = f'_h{hs[0]}' if len(hs) == 1 else ''
+    oo.rename({'ce': nm}).write_parquet(f'{W}/{nm}_{tag}_train{sfx}.parquet')
+    tband.select('id1', 'id2').with_columns(pl.Series(nm, pt)).write_parquet(f'{W}/{nm}_{tag}_test{sfx}.parquet')
     # quick diagnostic: AUC of ce vs p inside the band
     from sklearn.metrics import roc_auc_score
     chk = band.join(oo, on=['id1', 'id2'])
     print('band AUC p', roc_auc_score(chk['y'], chk['p']), 'ce', roc_auc_score(chk['y'], chk['ce']), flush=True)
 
 
+def merge(kv):
+    """combine the two half jobs: OOF band scores concatenated, test scores averaged."""
+    nm, tag = kv['name'], kv['tag']
+    tr = pl.concat([pl.read_parquet(f'{W}/{nm}_{tag}_train_h{h}.parquet') for h in (0, 1)])
+    te = [pl.read_parquet(f'{W}/{nm}_{tag}_test_h{h}.parquet') for h in (0, 1)]
+    te = te[0].join(te[1].rename({nm: 'b'}), on=['id1', 'id2']).with_columns(((pl.col(nm) + pl.col('b')) / 2).alias(nm)).drop('b')
+    tr.write_parquet(f'{W}/{nm}_{tag}_train.parquet')
+    te.write_parquet(f'{W}/{nm}_{tag}_test.parquet')
+    from sklearn.metrics import roc_auc_score
+    chk = pl.read_parquet(f'{W}/oof_{tag}.parquet').join(tr, on=['id1', 'id2'])
+    print('merged', tr.height, te.height, 'band AUC p', roc_auc_score(chk['y'], chk['p']), 'ce', roc_auc_score(chk['y'], chk[nm]), flush=True)
+
+
 if __name__ == '__main__':
-    main(dict(a.split('=', 1) for a in sys.argv[1:]))
+    kv = dict(a.split('=', 1) for a in sys.argv[1:])
+    merge(kv) if kv.get('merge') == '1' else main(kv)

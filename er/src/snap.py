@@ -1,7 +1,7 @@
 """Store a version: submission + OOF metrics + decision config + code snapshot, and append to VERSIONS.md.
 
 python snap.py tag=t2 desc="stage-2 ctx features" [lb=0.981]
--> /scratch/m25csa019/versions/<tag>/{matching_results.tsv, meta.json, code.tar.gz}
+-> /scratch/m25csa019/versions/<tag>/{matching_results.tsv, candidate_pairs.tsv, meta.json, code.tar.gz}
 """
 import os
 import sys
@@ -19,11 +19,14 @@ kv = dict(a.split('=', 1) for a in sys.argv[1:])
 tag = kv['tag']
 d = f'{V}/{tag}'
 os.makedirs(d, exist_ok=True)
-src = f'{OUT}/{tag}/matching_results.tsv'
-if os.path.exists(src):
-    shutil.copy2(src, f'{d}/matching_results.tsv')
-    os.makedirs(f'{REPO}/submissions/{tag}', exist_ok=True)       # repo copy for download / upload
-    shutil.copy2(src, f'{REPO}/submissions/{tag}/matching_results.tsv')
+for fn in ('matching_results.tsv', 'candidate_pairs.tsv'):          # both files belong to the final submission
+    src = f'{OUT}/{tag}/{fn}'
+    if os.path.exists(src):
+        shutil.copy2(src, f'{d}/{fn}')
+        os.makedirs(f'{REPO}/submissions/{tag}', exist_ok=True)   # repo copy for download / upload
+        shutil.copy2(src, f'{REPO}/submissions/{tag}/{fn}')
+    else:
+        print(f'WARNING: {src} missing', flush=True)
 dec = json.load(open(f'{W}/dec_{tag}.json')) if os.path.exists(f'{W}/dec_{tag}.json') else {}
 ts = json.load(open(f'{OUT}/{tag}/test_stats.json')) if os.path.exists(f'{OUT}/{tag}/test_stats.json') else {}
 meta = dict(tag=tag, desc=kv.get('desc', ''), date=datetime.datetime.now().isoformat(timespec='minutes'),

@@ -20,3 +20,4 @@ OOF = macro F0.5 (split column says which: train = all train S1, tsim = test-lik
 | finc | 2026-09-26T17:34 | fin + final candidate set = stage-1 learned filter p1 >= 0.005 (4.47 cand per S1) | tsim | 0.99085 | 0.99044 | 0.99147 | 0.99254 | 5842048 |  | /scratch/m25csa019/versions/finc |
 | fin2bc | 2026-09-26T17:46 | fin2b (Optuna stage-2 params) + final candidate set p1 >= 0.005 (4.47 cand per S1) | tsim | 0.99087 | 0.99045 | 0.99149 | 0.99256 | 5841658 |  | /scratch/m25csa019/versions/fin2bc |
 | probe_fin_frm1 | 2026-09-26T16:40 | PROBE: fin + France-only shift fr=-1 (US/India rows identical to fin) | tsim | 0.99089 | | | | 5833261 | 0.986928 | submissions/probe_fin_frm1 |
+| probe_fin_frm2 | 2026-09-26T19:30 | PROBE: fin + France-only shift fr=-2 (US/India rows identical to fin) | tsim | 0.99089 | | | | 5821492 | 0.986946 | submissions/probe_fin_frm2 |
