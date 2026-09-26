@@ -109,13 +109,20 @@ def write_lists(path, s1ids, sel, col):
     return out
 
 
-def apply(tag, outdir, cand, shift=None, nocand=False):
-    """shift: optional {country: delta} -> p' = sigmoid(logit(p) + delta) for pairs of that country's S1 entities
-    (country-level calibration for a country without training labels; chosen with country-only leaderboard deltas)."""
+def unseen(s1):
+    """test countries that never occur in the training data (country is an open set: nothing is named in the code)."""
+    seen = set(pl.read_parquet(f'{W}/n_train_s1.parquet', columns=['country'])['country'].unique().to_list())
+    return sorted(set(s1['country'].unique().to_list()) - seen)
+
+
+def apply(tag, outdir, cand, fr=None, nocand=False):
+    """fr: optional delta -> p' = sigmoid(logit(p) + delta) for pairs of S1 entities whose country is unseen in training
+    (calibration for countries without training labels; delta chosen with leaderboard deltas that differ only there)."""
     os.makedirs(outdir, exist_ok=True)
     cfg = json.load(open(f'{W}/dec_{tag}.json'))
     p = pl.read_parquet(f'{W}/pte_{tag}.parquet')
     s1 = pl.read_parquet(f'{W}/n_test_s1.parquet', columns=['id', 'country']).rename({'id': 'source1_entity_id'})
+    shift = {c: fr for c in unseen(s1)} if fr is not None else None
     if shift:
         ctry = s1.select(enc('source1_entity_id').alias('id1'), 'country')
         p = p.join(ctry, on='id1', how='left')
@@ -145,4 +152,4 @@ if __name__ == '__main__':
         tune(kv['tag'], kv.get('split', 'train'))
     else:
         apply(kv['tag'], kv['out'], kv.get('cand', 'cand_test'),
-              shift={'France': float(kv['fr'])} if 'fr' in kv else None, nocand=kv.get('nocand') == '1')
+              fr=float(kv['fr']) if 'fr' in kv else None, nocand=kv.get('nocand') == '1')

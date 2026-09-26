@@ -1,0 +1,5 @@
+# L1 (2026-09-26 23:30): French noisy-student cross-encoder. ceb warm start + self-training set (src/fradapt.py:
+# teacher fin2 pseudo-labels on unseen-country test pairs, exact S1-S1 negatives, noised S1 positives) + US/India replay.
+# usage: DAG_MAXJ=2 python3 jobs/dag.py jobs/cef.dag logs/dag_cef.log   (MAXJ 2 leaves a queue slot for jobs/cer2bw.dag)
+cefsmoke |          | sbatch --parsable -J fz_cefsmk -w cn07 --mem=100G -t 00:40:00 --export=ALL,ER_WORK=/scratch/m25csa019/er_final,PY=/scratch/m25csa019/envs/erbw/bin/python,ARGS="src/ce.py split=tsim tag=b1ka lo=0.003 hi=0.997 epochs=1 txt=raw model=BAAI/bge-reranker-base init=ceb_b1ka extra=fra_b1ka lr=1e-5 bs=128 pbs=512 lim=20000 ntr=20000 nx=20000 save=0 name=cefsmoke half=0" jobs/gpu.sbatch
+cef      | cefsmoke | sbatch --parsable -J fz_cef -w cn07 --export=ALL,ER_WORK=/scratch/m25csa019/er_final,PY=/scratch/m25csa019/envs/erbw/bin/python,ARGS="src/ce.py split=tsim tag=b1ka lo=0.003 hi=0.997 epochs=1 txt=raw model=BAAI/bge-reranker-base init=ceb_b1ka extra=fra_b1ka lr=1e-5 bs=128 pbs=512 ntr=600000 name=cef",MERGE="src/ce.py merge=1 name=cef tag=b1ka" jobs/gpu2.sbatch

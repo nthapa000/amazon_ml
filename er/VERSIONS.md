@@ -21,3 +21,5 @@ OOF = macro F0.5 (split column says which: train = all train S1, tsim = test-lik
 | fin2bc | 2026-09-26T17:46 | fin2b (Optuna stage-2 params) + final candidate set p1 >= 0.005 (4.47 cand per S1) | tsim | 0.99087 | 0.99045 | 0.99149 | 0.99256 | 5841658 |  | /scratch/m25csa019/versions/fin2bc |
 | probe_fin_frm1 | 2026-09-26T16:40 | PROBE: fin + France-only shift fr=-1 (US/India rows identical to fin) | tsim | 0.99089 | | | | 5833261 | 0.986928 | submissions/probe_fin_frm1 |
 | probe_fin_frm2 | 2026-09-26T19:30 | PROBE: fin + France-only shift fr=-2 (US/India rows identical to fin) | tsim | 0.99089 | | | | 5821492 | 0.986946 | submissions/probe_fin_frm2 |
+| fin2c | 2026-09-27T00:13 | fin2 (Optuna + cer) + final candidate set p1 >= 0.005 (4.47 cand per S1) | tsim | 0.99092 | 0.99051 | 0.99152 | 0.99263 | 5835924 |  | /scratch/m25csa019/versions/fin2c |
+| fin3c | 2026-09-27T00:58 | fin3 (Optuna + cer2) + final candidate set p1 >= 0.005 | tsim | 0.99107 | 0.99067 | 0.99168 | 0.99272 | 5837080 |  | /scratch/m25csa019/versions/fin3c |

@@ -6,11 +6,12 @@ A job is submitted when all its dependencies have COMPLETED and the user has < M
 If a job fails, everything that depends on it (directly or indirectly) is skipped; independent jobs continue.
 State is logged to logs/dag.log (or the optional 2nd argument).   usage: python3 jobs/dag.py jobs/final.dag [log]
 """
+import os
 import subprocess
 import sys
 import time
 
-MAXJ = 3
+MAXJ = int(os.environ.get('DAG_MAXJ', 3))            # < 3 leaves slots for another runner
 spec, log = sys.argv[1], (sys.argv[2] if len(sys.argv) > 2 else 'logs/dag.log')
 
 
@@ -55,6 +56,9 @@ while any(j['state'] in ('WAIT', 'RUN') for j in jobs.values()):
             if out.isdigit():
                 j['id'], j['state'] = out, 'RUN'
                 say(f'{n} submitted {out}')
+            elif 'QOSMax' in out or 'AssocMax' in out:            # queue limit hit by a concurrent submitter: retry
+                say(f'{n} submit deferred (queue limit)')
+                break
             else:
                 j['state'] = 'FAIL'
                 say(f'{n} submit failed: {out[:200]}')
