@@ -10,9 +10,11 @@
 
 We normalize names and addresses per country, using a native-script → Latin dictionary learned only from the training matches. We then generate candidates with three complementary passes: compound blocking keys, graph-based sibling expansion, and multilingual-embedding nearest neighbours.
 
-A two-stage LightGBM cascade scores the candidates. It uses competition features, sibling-support features and three fine-tuned cross-encoders; two of these are multilingual and read the raw text. Links are chosen by a one-to-one assignment and an expected-F0.5 set selection that treats "no match" as an explicit option.
+A stage-1 LightGBM then acts as a learned candidate filter. It cuts ~103 first-pass candidates per Source-1 entity to **4.47**, which keeps 98.8% of true pairs and costs 0.00004 F0.5.
 
-Every choice is validated on a *test-like* split (orphan simulation). Validation macro F0.5 is **0.99077**. The leaderboard showed that France, unseen in training, was the remaining gap; we closed it with rule-based French normalization.
+The final model scores only those pairs. It is a stage-2 LightGBM with competition features, sibling-support features and three fine-tuned cross-encoders; two of the cross-encoders are multilingual and read the raw text. Links are chosen by a one-to-one assignment and an expected-F0.5 set selection that treats "no match" as an explicit option.
+
+Every choice is validated on a *test-like* split (orphan simulation). Validation macro F0.5 is **0.99087**, and the public leaderboard score is **0.986773**. France, unseen in training, remains the gap: ≈ 0.960 against ≈ 0.991 for US/India.
 
 ---
 
@@ -56,7 +58,7 @@ Every choice is validated on a *test-like* split (orphan simulation). Validation
 3. **Collective (graph) evidence.** *Sibling expansion* reaches missed records through an already-matched record of the same business. *Sibling-support features* compare each candidate with the S1's other confident matches on raw and normalized text.
 4. **Three complementary candidate passes.** Keys, sibling expansion and **multilingual-embedding ANN**; ANN alone recovers 43% of the links the key-based blocking missed.
 5. **Multilingual cross-encoders on raw text** (native scripts, casing, French accents) stacked into the GBDT. They also drove most of the French leaderboard gain.
-6. **Cascade.** Stage 2 re-scores only the 4.6% of pairs with stage-1 p ≥ 0.001 (0.013% of true pairs lost, decision unchanged on validation). This makes 100% of the training data affordable.
+6. **Cascade = learned candidate filter.** Stage 2 is trained on the pairs with stage-1 p ≥ 0.001 (4.6% of first-pass pairs; 0.013% of true pairs lost), which makes 100% of the training data affordable. The final candidate set is stage-1 p ≥ 0.005: 4.47 candidates per S1.
 7. **Learned or rule-based normalization only.** The Indic transliteration dictionary is **learned from the training matches**. French normalization is **rule-based** (language and administrative-geography rules, the same kind as the US/Indian state tables) and applies only to French records.
 
 ### 2.3 How the key challenges were handled
@@ -140,12 +142,35 @@ Every choice is validated on a *test-like* split (orphan simulation). Validation
   - `intfloat/multilingual-e5-small` (MIT) embeddings of normalized "core name | address". The encoder is used frozen as published (never fine-tuned, no labels), exactly like a blocking key.
   - Exact GPU nearest-neighbour search of S1 for every S2/S3 record within its country; the top 3 neighbours are added.
   - Recovers **43%** of the pairs keys and expansion missed, at 9 new pairs per S1.
-- **Candidate pairs generated (test):**
+- **Learned candidate filter (final candidate set):**
+  - The stage-1 LightGBM, trained on the pair features of the first-pass candidates, scores every first-pass pair.
+  - Pairs with stage-1 score p1 ≥ **0.005** form the final candidate set. The final matching model (stage-2 LightGBM + cross-encoders + decision rule) runs **only** on these pairs, and every predicted match is one of them. This set is what `candidate_pairs.tsv` contains.
+  - The cut was chosen on the test-like split by measuring the final model's F0.5 when matching is restricted to each set:
+
+    | final candidate set | candidates / S1 (test) | France / India / US | pair recall | validation F0.5 | Δ |
+    |---|---|---|---|---|---|
+    | first pass (keys + expansion + ANN) | 103.3 | | 0.98920 | 0.990894 | |
+    | stage-1 p1 ≥ 0.001 | 5.30 | 8.12 / 4.78 / 4.83 | 0.98903 | 0.990894 | 0 |
+    | stage-1 p1 ≥ 0.002 | 4.89 | 7.02 / 4.48 / 4.56 | 0.98888 | 0.990889 | −0.000004 |
+    | **stage-1 p1 ≥ 0.005 (used)** | **4.47** | 5.97 / 4.18 / 4.23 | **0.98844** | **0.990853** | −0.000041 |
+    | stage-1 p1 ≥ 0.01 | 4.21 | 5.39 / 3.98 / 4.02 | 0.98781 | 0.990799 | −0.000095 |
+    | stage-1 p1 ≥ 0.02 | 3.99 | 4.93 / 3.81 / 3.85 | 0.98689 | 0.990714 | −0.000180 |
+    | top-5 per S1 (fixed cap) | 4.12 | 4.54 / 4.04 / 4.05 | 0.94180 | 0.985322 | −0.005572 |
+
+  - A score cut beats a fixed per-S1 cap: entities with many true matches keep all of them.
+  - The floor is close. S1 entities have 3.46 true matches on average, so 4.47 candidates is 1.3× the true count.
+  - French entities keep more candidates (5.97) because the model is less certain on the unseen country.
+- **Candidate pairs (test):**
   - key blocking, top-40 caps: 78.1M
   - top-100 caps: 151.2M
   - \+ sibling expansion: 161.7M
-  - \+ ANN: **176.7M**, which is the set the matching model scores and what `candidate_pairs.tsv` contains
-  - reduction ratio ≈ 99.999% vs the 17.3 trillion possible S1 × (S2 ∪ S3) pairs
+  - \+ ANN: 176.7M (first pass, 103 per S1)
+  - **learned filter p1 ≥ 0.005: 7.74M = 4.47 per S1**, the content of `candidate_pairs.tsv`
+  - reduction ratio 99.99996% vs the 17.3 trillion possible S1 × (S2 ∪ S3) pairs
+- **Scalability.** No step compares all pairs.
+  - Blocking runs within a country, with block-size caps per key family and fixed top-K (100 per S1, 10 per S2/S3 record). Its cost grows with the number of records, not their square.
+  - The ANN pass is a fixed top-3 nearest-neighbour search within a country. Exact search is used here; the same step runs on a standard approximate vector index at larger scale.
+  - The learned filter is one GBDT pass, linear in the first-pass candidates.
 - **Recall on the test-like split:**
 
   | candidate set | pair recall | ceiling F0.5 (perfect matcher) | candidates / S1 |
@@ -154,7 +179,8 @@ Every choice is validated on a *test-like* split (orphan simulation). Validation
   | compound keys, top-40 | 0.974 | 0.992 | 46 |
   | top-100 caps | 0.978 | 0.993 | 90 |
   | + sibling expansion | 0.981 | 0.9936 | 97 |
-  | + ANN top-3 | **0.989** | — | 106 |
+  | + ANN top-3 (first pass) | 0.989 | 0.9967 | 106 |
+  | **learned filter p1 ≥ 0.005 (final)** | **0.988** | **0.9965** | **4.1** |
 
   The first row is on the full train split.
 - **How we ensured true matches were not lost:**
@@ -221,8 +247,11 @@ Every choice is validated on a *test-like* split (orphan simulation). Validation
 | c1a | cascade, 100% of S1 | 0.98685 | |
 | c2 | + sibling support + multilingual cross-encoder (raw text) | 0.98776 | 0.982 |
 | c6 | + bge-reranker-base (raw text) | 0.98790 | 0.9835 |
-| **c5** | c2 + **ANN candidates** (own stage 1 + union features) | **0.99077** | pending |
-| fin | consolidated end-to-end run: c5 + bge + France normalization | [final run] | [pending] |
+| c5 | c2 + **ANN candidates** (own stage 1 + union features) | 0.99077 | 0.986624 |
+| fin | consolidated end-to-end run from raw TSVs: c5 + bge + French normalization | 0.99089 | 0.986773 |
+| fin2b | fin + Optuna stage-2 parameters (30 trials) | 0.99091 | |
+| finc | fin, final candidate set = learned filter p1 ≥ 0.005 (103 → 4.47 per S1) | 0.99085 | |
+| **fin2bc** | fin2b + final candidate set p1 ≥ 0.005 | **0.99087** | |
 
 - **Not adopted** (gain below the 0.0001 acceptance bar):
   - stage 3 (+0.00000)
@@ -232,7 +261,15 @@ Every choice is validated on a *test-like* split (orphan simulation). Validation
   - XGBoost member and blend (+0.00003)
   - second expansion round (0.6% recall)
   - larger caps (ceiling +0.0004)
-- **F_0.5 score (macro, validation):** 0.99077 (US 0.99036, India 0.99138; F0.4 0.99245).
+- **Optuna on stage 2 (adopted after an unbiased check).**
+  - 30 trials all prefer smaller, more regularized trees: logloss −0.8%.
+  - 5-fold F0.5 gain +0.000014 is below our bar, so we checked selection bias directly. On folds 1–4, which the search never saw, the gain is +0.000020; on fold 0 it is −0.000010.
+  - The gain is small but not an artefact of tuning, so the tuned parameters are kept.
+- **F_0.5 score (macro, validation), final candidate set:** 0.99087 (US 0.99045, India 0.99149; F0.4 0.99256).
+- **France on the leaderboard.**
+  - fin vs c5: +0.00015 on the public leaderboard. The US/India validation gain explains ≈ +0.0001 of it, so France moved only ≈ 0.9595 → 0.9598.
+  - The rule-based French normalization changed 9.9% of French predictions, but its net effect was about neutral.
+  - The model is 3–4× less certain on French pairs (0.41 pairs per S1 with 0.1 < p < 0.9, against 0.11–0.14 for US/India on test and validation). This motivates the France-only calibration shift (Section 4) and the multilingual cross-encoders.
 - **Leaderboard decomposition.** c6 scored 0.9835; the same file with every French row emptied scored 0.849. With France weight 0.1497 this implies:
   - France ≈ 0.955
   - US + India ≈ 0.9885, consistent with validation
@@ -280,6 +317,7 @@ Every choice is validated on a *test-like* split (orphan simulation). Validation
   - `src/sup.py`: sibling support
   - `src/ce.py`: cross-encoders, which save their weights
   - `src/train.py`: LightGBM, cascade option `sub=`
+  - `src/cands.py`: final candidate set (stage-1 learned filter p1 ≥ 0.005), restricts final predictions to it
   - `src/decide.py`: one-to-one assignment, expected-F selection, France calibration, output writing
   - `src/metric.py`: the exact README metric
   - `src/blend.py`, `src/gate.py`, `src/tune.py`, `src/snap.py`: experiment utilities

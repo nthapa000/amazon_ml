@@ -1,7 +1,7 @@
 #!/bin/bash
 # End-to-end pipeline: raw TSVs -> $OUT/matching_results.tsv + $OUT/candidate_pairs.tsv.
-# Generated from jobs/final.dag (same commands, same order). Steps marked [GPU] need one CUDA GPU (sm_80/sm_86: A30, A6000, A100).
-# Resources: 32 CPUs and ~230 GB RAM for the CPU steps. On SLURM, prefer: python3 jobs/dag.py jobs/final.dag
+# Generated from jobs/final.dag by jobs/gen_run_all.py (same commands, same order). Steps marked [GPU] need one
+# CUDA GPU (sm_80/sm_86: A30, A6000, A100). CPU steps: 32 CPUs, ~230 GB RAM. On SLURM: python3 jobs/dag.py jobs/final.dag
 set -e
 source "$(dirname "$0")/jobs/env.sh"          # ER_DATA, ER_WORK, HF_HOME, PY
 OUT=${OUT:-$ER_WORK/out}
@@ -76,8 +76,9 @@ $PY src/ce.py split=tsim tag=b1ka lo=0.003 hi=0.997 ntr=3000000 epochs=2 name=ce
 # ---- 10/11 ceb: cross-encoder 3 (bge-reranker-base, raw text) on the b1ka uncertain band  [GPU]   (after: ka)
 $PY src/ce.py split=tsim tag=b1ka lo=0.003 hi=0.997 ntr=3000000 epochs=2 name=ceb txt=raw model=BAAI/bge-reranker-base lr=2e-5 bs=128 pbs=512
 
-# ---- 11/11 fin: cascade stage-2 LightGBM (all features), decision rule tuned on OOF, write outputs, validate   (after: cev cem ceb)
+# ---- 11/11 fin: cascade stage-2 LightGBM, final candidate set = stage-1 filter p1 >= 0.005, decision rule tuned on OOF, write outputs, validate   (after: cev cem ceb)
 $PY src/train.py split=tsim tr=f_cand_tsim_ka te=f_cand_test_ka sub=oof_b1ka:pte_b1ka:0.001 frac=1.0 lr=0.05 seed=1 rounds=4000 extra=xf_tsim_ka+f2_tsim_ka+sib_tsim_ka+annf_tsim_ka+ctx_b1ka_train+cev_a1_train+sup_ka_tsim+cem_b1ka_train+ceb_b1ka_train:xf_test_ka+f2_test_ka+sib_test_ka+annf_test_ka+ctx_b1ka_test+cev_a1_test+sup_ka_test+cem_b1ka_test+ceb_b1ka_test tag=fin
-$PY src/decide.py tune tag=fin split=tsim
-$PY src/decide.py apply tag=fin out=$OUT cand=cand_test_ka
+$PY src/cands.py s1=b1ka fin=fin thr=0.005 out=finc
+$PY src/decide.py tune tag=finc split=tsim
+$PY src/decide.py apply tag=finc out=$OUT cand=cand_test_final
 $PY $VALIDATOR --matching $OUT/matching_results.tsv --candidate $OUT/candidate_pairs.tsv --test-dir $ER_DATA/test

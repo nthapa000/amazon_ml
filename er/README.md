@@ -4,11 +4,12 @@ Links every Source-1 business to its Source-2 / Source-3 records using only name
 the two submission files:
 
 - `matching_results.tsv`: one row per Source-1 entity, its matched S2/S3 ids (may be empty)
-- `candidate_pairs.tsv`: the blocking candidate set the matching model scores
+- `candidate_pairs.tsv`: the final candidate set the matching model runs on (~4.5 candidates per Source-1 entity)
 
-**Pipeline in one line:** normalization → multi-pass blocking (compound keys, then sibling expansion, then ANN) →
-pair features → stage-1 LightGBM → three cross-encoders on the uncertain band → cascade stage-2 LightGBM →
-one-to-one assignment with an expected-F0.5 set rule tuned on out-of-fold predictions.
+**Pipeline in one line:** normalization → multi-pass candidate generation (compound keys, then sibling expansion,
+then ANN; ~103 per S1) → pair features → stage-1 LightGBM, used as a learned candidate filter (p1 ≥ 0.005 → 4.47 per S1)
+→ three cross-encoders on the uncertain band → cascade stage-2 LightGBM → one-to-one assignment with an expected-F0.5
+set rule tuned on out-of-fold predictions.
 
 No external data, APIs or lookups are used. Dictionaries are learned from the training pairs, and France rules are
 hand-written. Test inputs are only used as inference inputs: no labels exist for them and nothing is trained on them.
@@ -82,7 +83,7 @@ python3 jobs/dag.py jobs/final.dag            # progress in logs/dag.log, job lo
 | 8 | ka | ANN candidates: features, union with kx (`ka` set), own stage-1 model, context and sibling-support features | `annka.py`, `feats*.py`, `xf.py`, `train.py`, `ctx.py`, `sup.py` | CPU | ~35 min |
 | 9 | cem | cross-encoder 2 (multilingual MiniLM, raw text) on the b1ka band | `ce.py` | GPU | ~1 h 25 |
 | 10 | ceb | cross-encoder 3 (bge-reranker-base, raw text) on the b1ka band | `ce.py` | GPU | ~5 h |
-| 11 | fin | cascade stage 2: all pairs with stage-1 p ≥ 0.001 and all features, 5-fold; decision rule tuned on `tsim` OOF; writes both outputs; runs the official validator | `train.py`, `decide.py` | CPU | ~1 h 30 |
+| 11 | fin | cascade stage 2: all pairs with stage-1 p ≥ 0.001 and all features, 5-fold; final candidate set = stage-1 p ≥ 0.005 (matching restricted to it); decision rule tuned on `tsim` OOF; writes both outputs; runs the official validator | `train.py`, `cands.py`, `decide.py` | CPU | ~30 min |
 
 Steps 2–10 all produce out-of-fold predictions on `tsim` (folds by S1 id hash, seed 7), so every feature used by
 stage 2 comes from models that never saw that S1's labels.
@@ -91,8 +92,12 @@ stage 2 comes from models that never saw that S1's labels.
 
 - Written to `$OUT/matching_results.tsv` and `$OUT/candidate_pairs.tsv`.
 - The last command of step 11 checks both files with `student_resource/utils/validate_submission.py`. It must print `PASS`.
-- `candidate_pairs.tsv` is exactly the scored `ka` set: key blocking + sibling expansion + ANN.
-- Validation metrics are saved in `$ER_WORK/dec_fin.json`: macro F0.5 overall, per country, F0.4, and the predicted-empty rate.
+- `candidate_pairs.tsv` is the final candidate set: the first-pass candidates (key blocking + sibling expansion + ANN,
+  ~103 per S1) filtered by the stage-1 model at p1 ≥ 0.005. That gives **4.47 candidates per S1** on test (7.74M pairs;
+  recall ceiling 98.84% on validation). The final matching model only runs on these pairs, and every match is one of them.
+- The cut was chosen on validation with `ana/cands.py`: p1 ≥ 0.001 gives 5.30 per S1 (F0.5 +0), 0.005 gives 4.47
+  (−0.00004), 0.01 gives 4.21 (−0.0001).
+- Validation metrics are saved in `$ER_WORK/dec_finc.json`: macro F0.5 overall, per country, F0.4, and the predicted-empty rate.
 
 ## 6. Source map (`src/`)
 
@@ -108,6 +113,7 @@ stage 2 comes from models that never saw that S1's labels.
 | `ann.py`, `annka.py` | ANN candidate pass and its union with the key candidates |
 | `feats.py`, `feats2.py`, `xf.py` | pair features: string similarities, house numbers, legal form, name commonness, hard-negative signals |
 | `train.py` | LightGBM with 5-fold GroupKFold by S1; OOF + fold-averaged test scores; `sub=` cascade mode |
+| `cands.py` | final candidate set: stage-1 learned filter (p1 ≥ thr); restricts final predictions to it |
 | `ctx.py` | competition features from stage-1 scores (rank, margin to runner-up, candidate counts) |
 | `sup.py` | sibling-support features (agreement with an S1's other confident matches) |
 | `ce.py` | cross-encoder fine-tuning / scoring of the uncertain band, 2-fold by S1 |
