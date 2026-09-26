@@ -79,7 +79,27 @@ Phase 2 (after w2):
 - Probe prepared: submissions/probe_c6_noFR (c6 with FR rows emptied) -> F_FR ~= (LB(c6) - LB(probe)) / 0.15 + 0.058.
 - Consolidated end-to-end pipeline (jobs/final.dag, work dir er_final) launched 20:55 with FR fixes: K100 -> stage-1 a1 -> expansion -> kx -> ANN top-3 -> ka;
   stage-1 b1 (kx) + b1ann -> ctx/sup; CEs cev (a1 band, normalized), cem + ceb (union band, raw); cascade stage 2 'fin'. CE weights now saved.
+- LEADERBOARD (public): c2 0.982, c6 0.9835, probe_c6_noFR (French rows empty) 0.849.
+  Decomposition (France weight 0.1497, French singleton rate ~0.057): France(c6) ~= 0.1345/0.1497 + 0.057 ~= 0.955;
+  US+India(c6) ~= (0.9835 - 0.1497*0.955)/0.8503 ~= 0.9885 (OOF 0.9879 -> validation faithful). France(c2) ~= 0.946 -> c6's raw-text CE (ceb) gave France ~+0.009.
+  => France is the whole LB gap (~0.005 of LB); language-aware (raw-text multilingual) models move France.
+- c5: cascade on ka (kx + ANN top-3; own ANN stage-1 w1ann; union ctx/sup; cemka = raw multilingual CE on union band, AUC 0.9790) -> OOF 0.99077
+  (US 0.99036, India 0.99138, F0.4 0.99245), +0.00287 vs c6 -> released (biggest single jump). Cascade positives 6,117,930 (+51,132 vs c2).
+- COMPLIANCE HARDENING (France): the hand-written department->region table in norm.py was replaced by a mapping LEARNED from the provided
+  data (dicts.learn_geo: S1 addresses end with a region, S2/S3 sometimes with a sub-unit; sub-unit -> region of co-occurring cities).
+  Learned: gironde->nouvelle aquitaine, nord->hauts de france, loire atlantique->pays de la loire, pas de calais->hauts de france (99%+ purity).
+  Re-normalizing 300k French test records reproduces the running final pipeline except 3 records (Merignac, Charente; too little support to learn).
+- REVERTED (user decision, 2026-09-26): French department->region back to the RULE-BASED table (fits 'rule-based or learned from training data';
+  the learned version used test inputs). Score effect 0: the final run 'fin' was normalized with the rule-based table; re-normalizing 300,049 French
+  records with the reverted code reproduces fin exactly (0 differences). learn_geo removed from dicts.py; geo hooks removed from norm.py / prep.py.
+- User decision (France scope): normalization fixes + France-only threshold probes on the leaderboard (decide.py apply fr=<delta>: p' = sigmoid(logit p + delta)
+  for French S1 only; US/India rows identical). NO pseudo-label training on test inputs. Verified: fr=-1 on c5 changes 11,275 French rows, 0 US/India rows.
+- LEADERBOARD: c5 = 0.987 (best so far). Implied (US+India ~0.9914 from OOF gain): France ~0.962 (c6 ~0.955) -> ANN helped France too.
 - Official validator with --check-ids on w2a (matching + 2.1 GB candidate file): PASS.
+- Final run (er_final), 2026-09-26: ka hit the /scratch quota at 02:33 (union test); resumed 02:48 via jobs/resume.dag after deleting 24G of
+  consumed intermediates. Disk fix, results-identical: annka union (pred=, thr=) and ctx (thr=) now write only rows with stage-1 p >= 0.0005.
+  The cascade stage 2 reads only p >= 0.001, and ctx features are still computed over all pairs. Synthetic test: every row stage 2 reads is
+  identical (threshold edges, partial sib coverage, ctx), cand_test_ka is unchanged, and union is re-runnable. Saves ~25G (union ~9G/split, ctx ~13G).
 
 Notes
 - s1 decision: thr grid 0.3..0.7 rising monotonically (0.9742->0.9780); expected-F 0.9780; one-to-one +0.0017 vs none at t=0.5. F0.4=0.9815. Test: 5.74M links, pred-empty 5.9% IN / 5.8% US / 5.4% FR.

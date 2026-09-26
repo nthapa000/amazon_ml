@@ -109,16 +109,27 @@ def write_lists(path, s1ids, sel, col):
     return out
 
 
-def apply(tag, outdir, cand):
+def apply(tag, outdir, cand, shift=None, nocand=False):
+    """shift: optional {country: delta} -> p' = sigmoid(logit(p) + delta) for pairs of that country's S1 entities
+    (country-level calibration for a country without training labels; chosen with country-only leaderboard deltas)."""
     os.makedirs(outdir, exist_ok=True)
     cfg = json.load(open(f'{W}/dec_{tag}.json'))
     p = pl.read_parquet(f'{W}/pte_{tag}.parquet')
+    s1 = pl.read_parquet(f'{W}/n_test_s1.parquet', columns=['id', 'country']).rename({'id': 'source1_entity_id'})
+    if shift:
+        ctry = s1.select(enc('source1_entity_id').alias('id1'), 'country')
+        p = p.join(ctry, on='id1', how='left')
+        lg = (pl.col('p').clip(1e-7, 1 - 1e-7) / (1 - pl.col('p').clip(1e-7, 1 - 1e-7))).log()
+        for c, dlt in shift.items():
+            p = p.with_columns(p=pl.when(pl.col('country') == c).then(1 / (1 + (-(lg + dlt)).exp())).otherwise(pl.col('p')))
+        p = p.drop('country')
+        print('country shift', shift, flush=True)
     gate = pl.read_parquet(f'{W}/{cfg["gate"]}_test.parquet') if cfg.get('gate') else None
     sel = select(p, cfg, gate)
-    s1 = pl.read_parquet(f'{W}/n_test_s1.parquet', columns=['id', 'country']).rename({'id': 'source1_entity_id'})
     m = write_lists(f'{outdir}/matching_results.tsv', s1.select('source1_entity_id'), sel, 'matched_entity_ids')
-    c = pl.read_parquet(f'{W}/{cand}.parquet', columns=['id1', 'id2'])
-    write_lists(f'{outdir}/candidate_pairs.tsv', s1.select('source1_entity_id'), c, 'candidate_entity_ids')
+    if not nocand:
+        c = pl.read_parquet(f'{W}/{cand}.parquet', columns=['id1', 'id2'])
+        write_lists(f'{outdir}/candidate_pairs.tsv', s1.select('source1_entity_id'), c, 'candidate_entity_ids')
     e = s1.join(m, on='source1_entity_id').with_columns(emp=pl.col('matched_entity_ids') == '')
     print('cfg', cfg, 'rows', m.height, 'links', sel.height)
     ce = e.group_by('country').agg(pl.col('emp').mean().alias('pred_empty'), pl.len())
@@ -133,4 +144,5 @@ if __name__ == '__main__':
     if cmd == 'tune':
         tune(kv['tag'], kv.get('split', 'train'))
     else:
-        apply(kv['tag'], kv['out'], kv.get('cand', 'cand_test'))
+        apply(kv['tag'], kv['out'], kv.get('cand', 'cand_test'),
+              shift={'France': float(kv['fr'])} if 'fr' in kv else None, nocand=kv.get('nocand') == '1')

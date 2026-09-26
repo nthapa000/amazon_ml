@@ -1,7 +1,7 @@
 # PLAN — Business Entity Resolution (Amazon ML Challenge 2026)
 
 ## Status (update after every stage: date | result | OOF F0.5)
-Best so far: u4 OOF 0.98517 (tsim) -> submissions/u4. Versions + submissions: VERSIONS.md, submissions/<tag>/matching_results.tsv, /scratch/m25csa019/versions/<tag>/
+Best so far: c5 OOF 0.99077 (tsim) -> submissions/c5. LB: c2 0.982, c6 0.9835 (France ~0.955, US+India ~0.9885). Versions + submissions: VERSIONS.md, submissions/<tag>/matching_results.tsv, /scratch/m25csa019/versions/<tag>/
 - [x] 0. Plan stored in repo | 2026-09-25
 - [x] 1. Env `/scratch/m25csa019/envs/er` | GPU = NVIDIA A30 24GB | 2026-09-25
 - [x] 2. `metric.py` (README example = 0.714) | verified
@@ -14,12 +14,12 @@ Best so far: u4 OOF 0.98517 (tsim) -> submissions/u4. Versions + submissions: VE
 - [x] 9. Blocking recall: K100 caps (ceiling .9916->.9928) + sibling expansion (->.9936) instead of embedding pass | kx chain running
 - [x] 10. Stage-2 competition features | t2 tsim OOF 0.98092 | sub2: ~/amazon_ml/submissions/t2 (validator PASS)
 - [x] 11. Expected-F set selection (best: ef, one-to-one margin 0.2); singleton gate: not needed yet
-- [ ] 12. LOCO robustness check (France proxy)
+- [x] 12. France robustness: superseded by adversarial audit + France EDA fixes (P11)
 - [x] 12b. tsim split (19% S1 dropped) to mimic test orphan rate | 2026-09-25
 - [x] 13. Cross-encoder on uncertain band (MiniLM-L6 -> u2 OOF 0.98422, sub3 submissions/u2); L12 wide band (ce12) -> u3 running
-- [ ] 14. Pseudo-label self-training on test
-- [ ] 15. Optuna + seeds (decision grid already saturated: 0.98519 vs 0.98517)
-- [ ] 16. Final end-to-end rerun, validator PASS, zip + Documentation
+- [-] 14. Pseudo-label self-training: skipped (France fixed via normalization instead; unmeasurable, risky)
+- [-] 15. Optuna + seeds: seeds useless (noise 0.000004); Optuna skipped (low expected gain)
+- [~] 16. Final end-to-end rerun running (P12); zip + Documentation pending
 
 ## Phase 2 status: improvement plan after w2 (full plan: section "Phase 2 plan" below)
 - [x] P0. w2a released (OOF 0.98670, sub7); w3a 0.98676 (+0.00006, not adopted); err analysis w2 done; cascade parity exact; noise floor -> from c1a/c1b
@@ -27,14 +27,18 @@ Best so far: u4 OOF 0.98517 (tsim) -> submissions/u4. Versions + submissions: VE
 - [x] P2. Sibling support: c2s 0.98714 (+0.00029)
 - [x] P3. Multilingual CE: c2m 0.98757 (+0.00072); combined c2 0.98776 (+0.00091) released
 - [x] P4. Recall: NO-GO (expansion round 2 recovers 0.6% of misses; K200 +0.0004 < bar)
-- [ ] P5. Optuna + XGBoost blend (+ optional entity gate)
-- [ ] P6. Freeze ~18 h before deadline; consolidated run_all.sh end-to-end rerun; package zip
-- [ ] P7. (Phase 3) Bigger multilingual cross-encoder BAAI/bge-reranker-base (MIT, 278M), raw text, 2 ep -> c3 = best c2 + ceb  [running, job 41057]
+- [x] P5. XGBoost c2x 0.98778 / blend c2+c2x 0.98779 / gate +0.00001 -> none adopted; Optuna skipped
+- [~] P6. Consolidated run = P12 (running); package zip after it
+- [x] P7. bge-reranker-base raw-text CE (band AUC 0.9804) -> c6 = c2 + ceb: 0.98790 (+0.00014), released
 - [x] P8. Error review of c2 -> c4 (prefix-ambiguity + source-aware siblings): 0.98783 (+0.00007, below bar, not adopted)
-- [~] P9. Gate: +0.00001 (not adopted); XGBoost c2x 0.98778 (~c2); blend c2+c2x pending
-- [~] P10. ANN probe GO: top-3 recovers 43.5% of blocked misses (51.4k links) -> integrating (chain: ann test -> ka features -> w1ann -> ctx/sup -> cemka -> c5)
-- [~] P11. FRANCE: LB 0.982 vs OOF 0.9878 -> France normalization fixes (dept->region, N°, hyphens, ordinals, legal) in consolidated run 'fin'; probe c6_noFR prepared. (was: Optional, guarded: France adaptation (pseudo-labels from confident test pairs incl. France) and test-side transliteration-dict extension; accept only if tsim OOF does not drop
-- [~] P12. Consolidated end-to-end run from raw TSVs started 20:55 (jobs/final.dag -> er_final), ETA ~09:00-10:00 Sep 26; then final zip
+- [x] P9. Gate +0.00001, XGBoost 0.98778, blend 0.98779 -> none adopted
+- [x] P10. ANN: c5 OOF 0.99077 (+0.00287 vs c6) released. Probe GO: top-3 recovers 43.5% of blocked misses (51.4k links) -> integrating (chain: ann test -> ka features -> w1ann -> ctx/sup -> cemka -> c5)
+- [~] P11. FRANCE (scope chosen: fixes + France-only LB threshold probes; no pseudo-labels; geography rule-based table, exactly as used by fin): LB 0.982 vs OOF 0.9878 -> France normalization fixes (dept->region, N°, hyphens, ordinals, legal) in consolidated run 'fin'; probe c6_noFR prepared. (was: Optional, guarded: France adaptation (pseudo-labels from confident test pairs incl. France) and test-side transliteration-dict extension; accept only if tsim OOF does not drop
+- [x] P12. Consolidated end-to-end run from raw TSVs started 20:55 (jobs/final.dag -> er_final), ETA ~09:00-10:00 Sep 26; then final zip
+  - Sep 26 02:33: base, a1, cev, kx, ann, annte, b1 DONE; ka FAILED in `annka.py union split=test` (/scratch quota: 201G of 200G soft / 205G hard) -> cem, ceb, fin skipped.
+  - Sep 26 02:48 (user chose option B): deleted 24G of consumed er_final intermediates (cand0_*, cand_{tsim,test}, *_k100new, xf/f2_*_k100, oof/pte_a1) -> 177G; union + ctx now write only rows with stage-1 p >= 0.0005 (stage 2 reads p >= 0.001; synthetic equivalence test passed). Resumed: `jobs/resume.dag` (ka2 41217 -> cem, ceb -> fin), log logs/dag_resume.log, release watcher `jobs/after_fin.sh logs/dag_resume.log`. fin ETA ~8 h after 02:48.
+  - 02:50 and 02:58: ka2 failed again with 'Disk quota exceeded' at 177G, always on xf_test_ka.parquet (the file being written at the real 02:33 quota hit): the NFS client on cn07 kept re-reporting the old error when that file was rewritten in place (new files wrote fine; cn07 /tmp fine). Fix: annka.py union writes to <file>.tmp then renames. 02:59 relaunched (ka2 41221, logs/dag_resume3.log, watcher after_fin.sh logs/dag_resume3.log); union test OK 03:0x.
+  - 03:24 ka2 DONE; 04:49 cem DONE (band AUC ce 0.978, RTX A6000 on cn07). ceb FAILED 03:26: landed on cn07's RTX PRO 6000 Blackwell (sm_120), unsupported by our torch -> fin skipped (not noticed until 10:59). 11:00 re-run ceb pinned to cn05 A30 (41235, jobs/resume2.dag, logs/dag_resume4.log); ~5 h -> fin ETA ~17:30-18:00.
 Guard rails: fixed folds / tsim split; all stacking inputs OOF; accept a lever only if gain > max(0.0001, 2 x seed noise); LB = sanity only.
 
 ---
@@ -402,3 +406,5 @@ Reaching 0.988–0.989 OOF is plausible. None of these gains are guaranteed; eac
 - **Recall steps:** `expand.py` / `block.py report` print the recovered fraction and ceiling before any retraining.
 - **Winners:** `release_cmds` → validator PASS → `submissions/<tag>/matching_results.tsv` plus a `VERSIONS.md` row. Upload for a leaderboard sanity check.
 - **Final:** clean `run_all.sh` rerun from the raw TSVs reproduces the chosen version's OOF and test output (validator PASS). Then build the zip.
+- [x] Package docs (2026-09-26 11:5x): README.md rewritten for the final pipeline (11 steps, models + licences, SLURM/one-machine run); run_all.sh generated from jobs/final.dag (52 commands, no personal paths); jobs/env.sh paths overridable (same defaults); requirements.txt pinned from the env.
+- 2026-09-26 15:06: fin DONE + released (submissions/fin). OOF 0.99089 (US 0.99048, India 0.99152, F0.4 0.99257) vs c5 0.99077; validator PASS; vs c5: 25,772 French rows changed (9.9%), 5,054 India, 4,242 US. Awaiting LB upload by user.

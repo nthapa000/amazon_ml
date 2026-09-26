@@ -1,6 +1,7 @@
 """Stage-2 context / competition features from stage-1 scores (OOF on train, fold-avg on test).
 
-python ctx.py tag=s1   -> W/ctx_{tag}_train.parquet, W/ctx_{tag}_test.parquet
+python ctx.py tag=s1 [thr=0.0005]  -> W/ctx_{tag}_train.parquet, W/ctx_{tag}_test.parquet
+Features use all pairs; thr only drops rows with p < thr from the output (the cascade stage 2 never reads them).
 """
 import os
 import sys
@@ -10,7 +11,7 @@ import polars as pl
 W = os.environ.get('ER_WORK', '/scratch/m25csa019/er_work')
 
 
-def ctx(d):
+def ctx(d, thr=0.0):
     p = pl.col('p')
     rk = p.rank('ordinal', descending=True)
     d = d.with_columns(
@@ -26,13 +27,16 @@ def ctx(d):
         c_gap1=p - pl.col('c_m1'),
         c_2nd1=pl.when(pl.col('c_n1') > 1).then(pl.col('t1b')).otherwise(0.0))
     d = d.with_columns(c_marg2=p - pl.col('c_oth2'), c_rest1=pl.col('c_s1') - p)
+    if thr > 0:
+        d = d.filter(p >= thr)
     return d.drop('p', 't2', 't1b', *[c for c in d.columns if c in ('y',)])
 
 
 if __name__ == '__main__':
     kv = dict(a.split('=', 1) for a in sys.argv[1:])
-    tag = kv['tag']
-    ctx(pl.read_parquet(f'{W}/oof_{tag}.parquet').select('id1', 'id2', 'p')).write_parquet(f'{W}/ctx_{tag}_train.parquet')
+    tag, thr = kv['tag'], float(kv.get('thr', 0))
+    ctx(pl.read_parquet(f'{W}/oof_{tag}.parquet').select('id1', 'id2', 'p'), thr) \
+        .write_parquet(f'{W}/ctx_{tag}_train.parquet')
     if os.path.exists(f'{W}/pte_{tag}.parquet'):
-        ctx(pl.read_parquet(f'{W}/pte_{tag}.parquet')).write_parquet(f'{W}/ctx_{tag}_test.parquet')
+        ctx(pl.read_parquet(f'{W}/pte_{tag}.parquet'), thr).write_parquet(f'{W}/ctx_{tag}_test.parquet')
     print('done')

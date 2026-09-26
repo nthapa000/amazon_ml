@@ -4,14 +4,14 @@
 Spec file, one job per line:   name | dep1 dep2 ... | sbatch command (must print the job id: use --parsable)
 A job is submitted when all its dependencies have COMPLETED and the user has < MAXJ jobs in the queue.
 If a job fails, everything that depends on it (directly or indirectly) is skipped; independent jobs continue.
-State is logged to logs/dag.log.   usage: python3 jobs/dag.py jobs/final.dag
+State is logged to logs/dag.log (or the optional 2nd argument).   usage: python3 jobs/dag.py jobs/final.dag [log]
 """
 import subprocess
 import sys
 import time
 
 MAXJ = 3
-spec, log = sys.argv[1], 'logs/dag.log'
+spec, log = sys.argv[1], (sys.argv[2] if len(sys.argv) > 2 else 'logs/dag.log')
 
 
 def say(msg):
