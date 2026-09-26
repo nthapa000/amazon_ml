@@ -23,3 +23,6 @@ OOF = macro F0.5 (split column says which: train = all train S1, tsim = test-lik
 | probe_fin_frm2 | 2026-09-26T19:30 | PROBE: fin + France-only shift fr=-2 (US/India rows identical to fin) | tsim | 0.99089 | | | | 5821492 | 0.986946 | submissions/probe_fin_frm2 |
 | fin2c | 2026-09-27T00:13 | fin2 (Optuna + cer) + final candidate set p1 >= 0.005 (4.47 cand per S1) | tsim | 0.99092 | 0.99051 | 0.99152 | 0.99263 | 5835924 |  | /scratch/m25csa019/versions/fin2c |
 | fin3c | 2026-09-27T00:58 | fin3 (Optuna + cer2) + final candidate set p1 >= 0.005 | tsim | 0.99107 | 0.99067 | 0.99168 | 0.99272 | 5837080 |  | /scratch/m25csa019/versions/fin3c |
+| fin3_frm2 | 2026-09-27T01:27 | fin3 + fr=-2, full candidate set (103/S1, 176.7M pairs; tsv on /scratch) | tsim | 0.99112 | 0.99070 | 0.99173 | 0.99275 | 5819045 |  | /scratch/m25csa019/versions/fin3_frm2 |
+| fin4c | 2026-09-27T02:10 | fin3 with cef (French self-trained ceb) + final candidate set p1 >= 0.005 | tsim | 0.99107 | 0.99066 | 0.99168 | 0.99272 | 5840226 |  | /scratch/m25csa019/versions/fin4c |
+| fin4c_frm2 | 2026-09-27T02:14 | fin4c + fr=-2 (unseen-country shift); vs fin3c_frm2: 4020 France / 633 India / 597 US rows differ | tsim | 0.99107 | 0.99066 | 0.99168 | 0.99272 |  |  | /scratch/m25csa019/versions/fin4c_frm2 |
