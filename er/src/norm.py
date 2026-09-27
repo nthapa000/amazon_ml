@@ -5,7 +5,9 @@ Two layers:
   norm_*   : maps native tokens via a learned dict (dicts.py), transliterates the rest,
              canonicalizes legal forms / street types / states, parses address parts.
 """
+import os
 import re
+import json
 import unicodedata
 from unidecode import unidecode
 
@@ -244,6 +246,26 @@ def norm_name(raw, tdict=None, ctry=None):
 NUM_RE = re.compile(r'\d+')
 
 
+def _load_city_region():
+    """FR_CITY_REGION: city -> region, learned only from this country's own S1 records (dicts.learn_city_region();
+    additive fallback for norm_addr() below, applied only when the department/region table found nothing -- see
+    W/fr_city_region.json). OFF BY DEFAULT (env ER_CITY_REGION=1 to enable): norm.py feeds prep -> every n_* parquet
+    -> every downstream feature, so flipping this on changes what a full run_all.sh reproduces. fin/fin2/fin3/fin4/
+    b34c and the running ceq were all built with this off; turn it on only for a build that is meant to include it,
+    and say so in Documentation.md. Guarded: also returns {} if the file is absent (before learn_city_region() has
+    been run, or on a machine with no ER_WORK data yet)."""
+    if os.environ.get('ER_CITY_REGION') != '1':
+        return {}
+    try:
+        w = os.environ.get('ER_WORK', '/scratch/m25csa019/er_work')
+        return json.load(open(f'{w}/fr_city_region.json')).get('France', {})
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {}
+
+
+FR_CITY_REGION = _load_city_region()
+
+
 def norm_num(t, fr=False):
     """house-number canon: strip leading zeros, drop ordinal suffix, keep letter suffix."""
     t = re.sub(r'(?<=\d)(st|nd|rd|th)$', '', t)
@@ -318,6 +340,8 @@ def norm_addr(raw, ctry, tdict=None):
         comps = [states.get(c, c) for c in comps]
     if fr:
         state = next((c for c in reversed(comps) if c in FR_REGIONS), '')
+        if not state:                                    # additive fallback: bare city name, no department/region text at all
+            state = next((FR_CITY_REGION[c] for c in reversed(comps) if c in FR_CITY_REGION), '')
     return dict(ad=' , '.join(comps), hn=' '.join(dict.fromkeys(nums)), pc=' '.join(dict.fromkeys(pcs)),
                 state=state)
 

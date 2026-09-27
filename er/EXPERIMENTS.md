@@ -159,3 +159,11 @@ Notes
   cutting the continued model's re-score from ~5h to ~1h per half; merge(unseen=1 base=<model>) patches just those
   rows into the base model's oof/pte files (US/India rows byte-identical, OOF file untouched, verified on real
   cef_b1ka files: 0 non-French rows changed, French rows = exact average of the two halves).
+
+- 12:1x Reproducibility fix on the France state-completeness change (flagged by a peer session, amazon-ml-5f):
+  norm.py feeds prep -> every n_* parquet -> every downstream feature, so the city->region fallback would silently
+  change what run_all.sh reproduces for fin3/fin4/b34c/ceq, all built before it existed. Gated the fallback behind
+  ER_CITY_REGION=1 (default off): verified with no env var set, norm_addr() on a bare-city French address returns
+  the exact old (empty) state; with the flag set, it returns the learned region. Nothing live has been touched yet
+  (n_test_s2/s3.parquet re-normalization, plan step 3, is still pending the user's go-ahead) -- currently this is
+  inert code, not applied to any built artifact.
