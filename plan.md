@@ -1,11 +1,65 @@
 # plan.md — closing the gap to the top 3 (Amazon ML Challenge 2026, Business Entity Resolution)
 
-> **Read Part II first** (bottom of this file, written 17:30 IST after `analysis_summary`). It supersedes Part I
-> wherever they disagree:
-> - A2 (CE-competition features) is demoted: a linear probe measured +0.00003.
-> - A4 (re-probing the France shift) is dropped: the δ sweep is flat from −1 to −3.
-> - The France share of CE training data is ~67%, not 15%.
-> - §4 S2↔S3 mining, the empty-address recall track and MLM adaptation are measured dead ends.
+**This is the master plan** (updated ~18:30 IST, 27 Sep). It contains everything:
+- Part I: original plan
+- Part II: after `analysis_summary`
+- Part III: review of `strategies_for_winnig.txt`
+- Part IV: organizers' Q&A answers
+
+`plan1.md` is the same content without this summary and is kept only for history. **Where parts disagree, the later
+part wins.** The section right below is the one to act on.
+
+## ★ CURRENT PRIORITIES (act on this; details in the parts referenced)
+
+Standing: LB **0.987862** (≈ 80th) · rank 3 **0.990810** · rank 1 **0.991483** · local tsim **0.99112** (fx).
+LB ≈ 0.85·F(US+India) + 0.15·F(France) → our France ≈ **0.969**. **The gap to the leaders is mostly France.**
+
+### Tonight, in order (score levers)
+
+| # | lever | where | what it targets | expected LB gain | confidence | cost |
+|---|---|---|---|---|---|---|
+| 1 | **N1: merge the two machines' stacks.** Bring cer2 / **ceq (Qwen3-Reranker-4B)** / cef / ceqf and fin5/fin6 into Kushal's stage 2, or logit-blend fx-family with fin6-family | II.2 | architectural diversity; France via the 4B decoder | **+0.0002 to +0.0005** (more if ceq helps France the way ceb did) | medium–high | CPU ~1 h + copying ~10 parquets |
+| 2 | **cfs + aux**: France-specialist reranker (warm start from cxf, ~67% French rows, `txt=raw`, matched halves) with `aux=s2mat_test:frlab_test`, so stage 2 has French rows to learn its weight | II.1 | France discrimination at shared addresses | **+0.0003 to +0.0008** | medium | GPU ~3.5 h (in flight) |
+| 3 | **N2 match-count prior** in the decision; **N3 duel model** for contested records | II.2 | the 47% of in-set misses that went to the wrong S1 | +0.0000 to +0.0003 | medium (measurable on tsim) | CPU 40 min + 1.5 h |
+| 4 | **L1 cross-script matching for India.** Transliteration features (indic-transliteration / anyascii) after a slice gate. **The only modelling hint in the organizers' answers** | IV.2 | India native-script names (22.7% of India S2) | +0.0000 to +0.0003 | medium (gate first) | CPU ~1 h |
+| 5 | **N5 per-source France δ** (S2 vs S3), fitted label-free to the per-source match histograms | II.2 | France calibration | unknown, one upload | low–medium | CPU 20 min |
+| 6 | Small, measurable: **III.2-A** siblings recomputed from the fx scores; **L3** per-country stage 2 (US/India); **L2** twin rule | III.2 / IV.2 | US/India residuals; France twins | +0.00002 to +0.0002 each | medium–low | CPU 20–60 min each |
+| 7 | Optional / LB-only: **N4** text-view TTA for CE; **N6** per-country quantile of CE scores; **L4** wordfreq feature; **III.2-B** L5/L6 French hard negatives for the next French CE | II.2 / III.2 / IV.2 | France | 0 to +0.0002 each | low | GPU or CPU |
+
+**If time is short, do only 1 → 2 → 4.** Realistic total tonight: **+0.0005 to +0.0015 LB (→ ~0.9884–0.9894)**.
+Top 3 needs France to rise by ~0.015–0.02 F. Only #1 (the 4B reranker) and #2 have a plausible path to that.
+
+### Not score levers, but must be done (they protect the rank)
+- **L5 compliance / reproducibility (before zipping):**
+  - commit the `frlab_test` generator script (it is currently missing);
+  - commit `fr_aug.py`, `geo.py`, `package.sh` and the uncommitted `aug=`, `aux=`, `ew=`, `norm1=` diffs;
+  - model table (licence, params, HF revision) plus the line "no model > 8B at any stage, including teachers";
+  - candidate-set paragraph stating both numbers (103 / S1 first pass → 4.47 / S1 scored, 7.74M pairs);
+  - quote the organizers' rulings in the compliance section.
+- **L6 upload policy:**
+  - private = best public; same test files; France in both splits. **Use every remaining slot today.**
+  - The zip must reproduce the best-public upload exactly.
+  - Freeze modelling at 21:00; zip + validator PASS by ~22:45.
+
+### Upload plan (remaining slots)
+1. ~18:30–19:00: **fxq + N1** (merged stack / blend)
+2. ~19:30–20:00: **+ cfs + aux** + winners of N2 / N3 / III.2-A / L3
+3. ~20:30: **+ L1** (+ L2), isolated so the India/France delta is readable
+4. ~21:00: **N5** per-source France δ, or L4 as a pure France probe
+5. reserve: rollback / final pick
+
+### Measured dead ends (do not spend time)
+- decision-rule / threshold / isotonic re-tuning (±0.00003)
+- empty-address recall recovery (break-even precision 0.45 vs best 0.32)
+- S2↔S3 label mining (anti-informative in the band)
+- MLM domain adaptation (no LM head)
+- global France δ re-probe (flat from −1 to −3)
+- `ew=1`, `xf3`, gate, XGBoost blend, seeds as a lever
+- new blocking channels / blocking rerun
+- any model > 8B (prohibited, even as a teacher)
+- training a new big LLM tonight (scoring alone is ~4.4 h per half)
+
+---
 
 Written 2026-09-27 17:05 IST from `approach.md`, `EXPERIMENTS.md`, `VERSIONS.md`, `README.md`, `CHANGES_kushal_local.md`
 and the code in `er/src/`. The dataset, the Q&A PDF and `analysis_summary.pdf` were **not** available to this session, so
@@ -480,3 +534,289 @@ In priority order:
 2. Stage 2 trained with that world included.
 3. ceq continued on France data (cef-style), full two halves.
 4. Normalization gaps (US St/Saint, CT/MT; FR frères/apt/bis) inside that rerun.
+
+---
+---
+
+# Part III — review of `strategies_for_winnig.txt` (written ~18:00 IST)
+
+## III.0 Verdict in one paragraph
+The document is a sound, *generic* entity-resolution recipe:
+- normalize → multi-channel blocking → pairwise GBDT → margin features → F0.5 decision → singletons → S2/S3
+  consistency → ensemble;
+- it ranks cross-encoders and dense retrieval as low priority ("Priority 4").
+
+Our pipeline already does every Priority 1–3 item and, beyond that, the Priority 4 items, which are where every
+large gain of the last two days came from:
+
+| lever | OOF gain |
+|---|---|
+| ANN | +0.00287 |
+| raw-text multilingual CEs | +0.00072 / +0.00014 / +0.00016 LB ×3 |
+| cascade stage 2 | +0.00015 |
+
+The document contains **no information about this dataset**: nothing on France, the 15% unseen country,
+source-specific noise or the measured loss decomposition. Its advice to "prioritise blocking and normalization over
+cross-encoders" is **the opposite of what this dataset has shown**:
+- blocking-side headroom is 0.00334, but it cannot be harvested at F0.5 (break-even precision 0.45 vs best 0.32);
+- the reranker ladder moved France +0.009.
+
+So: use it as a checklist confirming nothing basic is missing, not as a new direction.
+
+## III.1 Item-by-item audit (doc section → our status → evidence)
+
+| doc § | recommendation | our status | evidence / note |
+|---|---|---|---|
+| 1, 18 | optimize entity-level macro F0.5, never 0.5 | **done** | `metric.py`; expected-F0.5 set selection (`decide.py pick_ef`) tuned on OOF |
+| 2, 24 | candidate recall first; measure Recall@K | **done** | blocking b1→b3→K100→expansion→ANN: pair recall 0.921→0.9809+, ceiling 0.99666; `ana/cands.py` recall per cut |
+| 3 | multiple blocking channels (exact name, char TF-IDF, tokens, address, name×city/hn/PIN) | **done (mostly)** | 11 key families (tok, pair, tokst, cat, full, nw/ww/hw/fw, code, sub) + sibling expansion + e5 ANN. Char TF-IDF / BM25 not built as channels, see III.3 |
+| 4 | strong normalization | **done** | `norm.py`: legal forms, street types, states, accent strip, junk prefixes, France rules |
+| 5 | learn abbreviations from training pairs | **partial** | transliteration dict learned (`dicts.py`); abbreviation *mining* not built, see III.2-E |
+| 6 | Indic transliteration, learned from train | **done** | learned token dict (1347 name tokens); coverage train 97.8% / test 96.4% |
+| 7 | structured address features | **done** | hn_inter / hn_conf / hn_sub, pc_eq, st_eq, ad_ts / jac / widf / cov, geo.py city→state |
+| 8–9 | GBDT on rich pair features | **done** | 49 + 7 + 6 + 13 + 15 features; LightGBM stage 1 + cascade stage 2 |
+| 10 | score margin, rank, close candidates | **done** | `ctx.py`: c_marg2 (the #1 feature, 47–77% of gain), c_gap1, c_r1 / c_r2, c_n1h |
+| 11–12 | hard-negative hierarchy | **done for GBDT/CE; partial for France synthetic** | stage 1 trains on blocking candidates (natural hard negatives); CEs train on the uncertain band; `fr_aug.py` builds same-address negatives. Missing levels, see III.2-B |
+| 13–14 | entity-level rule with margin + evidence | **done** | one-to-one margin 0.3 + expected-F set rule; every global variant is within ±0.00003 (saturated) |
+| 15 | explicit singleton model | **tried, rejected** | `gate.py` AUC 0.99935 but +0.00001; predicted-empty 5.7% vs true 5.58% |
+| 16 | S2↔S3 triangle consistency | **done as features; mining rejected** | `sup.py` sibling support (+0.00029 when added). S2↔S3 *label mining* measured anti-informative in the band (0.186 vs base 0.204). Re-computing support from final scores is new, see III.2-A |
+| 17 | S1-level validation, slice breakdowns | **done; slices partial** | GroupKFold by S1; `tsim` test-like split (19% of S1 dropped for the orphan rate); adversarial AUC 0.59–0.64. Slice report, see III.2-D |
+| 19 | don't hard-code countries | **done** | `unseen()` shift, country never a feature, France rules gated generically |
+| 20 | LGBM + XGB + CatBoost ensemble | **XGB tried (par, blend 0); CatBoost untried** | see III.2-C; expected tiny |
+| 22 P4 | dense retrieval, cross-encoders | **done, and our main gain source** | ANN e5, six CEs up to Qwen3-Reranker-4B |
+| 23 | NAS | **skip** | agree with the doc |
+
+## III.2 What is genuinely new or improvable (cheap, gated, ranked)
+
+**A — Sibling support recomputed from the *final* model**  (CPU, ~40 min + ~25 min retrain; measurable on tsim)
+- `sup.py` defines an S1's siblings from **stage-1** scores (`pred=oof_b1ka`, one-to-one margin 0.2, p ≥ 0.9).
+  Stage 1 is much weaker than today's stage 2 (band AUC 0.970 vs CE-fed stage 2).
+- Re-run `sup.py pred=oof_fx` (tsim) / `pte_fx` (test) with `sib_thr` in {0.8, 0.9, 0.95}. The siblings are then
+  more complete and cleaner, which matters most for S1s with several S2 and S3 records.
+  - This is the doc's "triangle consistency" in the form that suits this pipeline.
+- Leak check: oof_fx is out of fold with the same S1 folds, and siblings are records of the same S1, hence the same
+  fold, so this is valid exactly as stage-1 OOF was.
+- Also add one "caution" feature from doc §16: `s_iso` = 1 if the pair's S1 has ≥ 2 siblings and x's best sibling
+  similarity is below the 10th percentile of true-pair values (x disagrees with every other record of that
+  business).
+- **Adopt** if tsim gain ≥ +0.00005. Expected +0.00003–0.0002 (the original sup gave +0.00029 on a weaker base).
+
+**B — Complete the hard-negative hierarchy in the French synthetic set**  (CPU, ~20 min; feeds cfs / any French CE)
+`fr_aug.py gen` draws negatives by shared address (60%) or first core token (40%). Two levels from doc §11–12 are
+missing, and both match the observed French borderline class "(b) same name, different street or house number ±1,
+other legal form" (EXPERIMENTS.md, France borderline inspection):
+- **L5 same name + neighbouring house number / same street:** take a French S1; keep the name (noised); set the house
+  number to ±1–4 or pick another S1's number on the same street; label 0.
+  - Exact by construction? **Only if** no other S1 has that name at that address. S1 is deduplicated, so check the
+    new (name, address) is not an existing S1 and not the anchor itself.
+- **L6 same name + other city in the same region:** swap the city/postcode for another French city of that region
+  (from S1's own city list); label 0.
+
+Emit about 150k rows each, in the `(t1, t2, y)` raw-text format. Add them via `aug=` to the next French CE run only.
+- **Gate:** US/India band AUC must not drop (cfs acceptance rule, ≥ 0.9835).
+- **Caveat:** in train, same-name-other-address pairs are sometimes *true* matches (S3 rewrites addresses). Keep L5/L6
+  to ≤ 10% of the French rows so the model does not learn "any address change = non-match".
+
+**C — CatBoost as a stage-2 member**  (CPU, ~45–60 min; low value)
+- XGBoost depth 10 gave OOF par and blend +0.00001. CatBoost (ordered boosting, symmetric trees) is a slightly more
+  different learner, and the doc's §20 advice is right in principle.
+- Try only if CPU is idle: same s2mat features, 5 folds, then logit-blend with fx via `blend.py`.
+- **Kill** if blend < +0.00003. Needs `pip install catboost` (Apache-2.0).
+
+**D — Slice-level error report**  (CPU, 15 min; decides where N4/TTA should aim)
+The doc's §17 slice list is a good lens we have not fully applied. On `oof_fx`, report macro F0.5, precision and
+recall for:
+- India S2 names fully in native script (22.7% of India S2);
+- upper-cased S2 names;
+- domain-style names (3–4%);
+- empty S2/S3 address;
+- S1 with ≥ 5 true matches;
+- S1 whose core name is shared by ≥ 5 other S1s;
+- S3 records with address rewrites;
+- each by country.
+
+Any slice with a loss share far above its population share is a target for a text-view TTA (N4) or a targeted
+feature. This is also the most direct answer to "improve India/US": it shows *which* India/US records still fail.
+
+**E — Abbreviation / variant mining from training pairs**  (CPU, 30 min to mine; *use after the deadline, or only as
+a CE text view*)
+- Align tokens of matched train pairs; keep frequent (a, b) where b is a prefix, subsequence or known contraction of
+  a (engineering↔engg, consultancy↔consult, international↔intl).
+- Using it in `norm.py` would need the full 9–12 h rerun, so not tonight.
+- Tonight it can only enter as a "canonicalized" text view for the CE TTA (N4), with the same caveat: the view must be
+  applied to both the tsim and test bands.
+
+## III.3 Items in the doc that we should *not* do tonight (with the measurement that rules each out)
+
+| doc recommendation | why not |
+|---|---|
+| more blocking channels (char TF-IDF, BM25, name+city) | 78.8% of never-blocked pairs have an empty S2/S3 address. Measured: adding name-only candidates for them is **net negative** at every precision cut (best −0.00001; break-even precision 0.45 vs achievable 0.32). Also needs the 230 GB `ka` rerun, which does not fit the box |
+| separate singleton model | `gate.py` +0.00001 |
+| probability calibration / isotonic | re-tested today: within ±0.00003 |
+| single global threshold warnings | already entity-level; the grid is saturated |
+| XGBoost ensemble | `c2x` par, blend +0.00001 |
+| S2↔S3 pair mining for labels | anti-informative in the band (measured) |
+| NAS / bigger generic nets | agree with the doc: no |
+
+## III.4 Where this leaves tonight's order (Part II upload plan unchanged, with III.2 slotted in)
+1. **N1** merge the two machines' stacks + fxq → upload #1
+2. **cfs + aux** (+ **III.2-B** L5/L6 negatives if cfs has not launched yet; otherwise keep them for the next French
+   CE) → upload #2, together with the winners of **N2 / N3 / III.2-A**
+3. **N4 TTA** aimed at the worst slice from **III.2-D**, or **N5** per-source France δ → upload #3
+4. **III.2-C** CatBoost only if CPU is idle; **III.2-E** after the deadline
+
+Expected contribution of Part III on top of Part II: **+0.00005 to +0.0003 LB** (mainly III.2-A and III.2-B).
+The projection in II.4 stands.
+
+---
+---
+
+# Part IV — hints from the organizers' answers (Query Form Responses, leaders' answers only)
+
+## IV.0 How this was read
+- The sheet has 967 queries, of which 342 were answered by the Amazon leaders. The answers reduce to **46 unique
+  paragraphs**; 244 answers are "the dataset is on Unstop" and 21 are "AWS is optional".
+- Only the **answer column** is used as evidence. Participant questions are quoted only to show what an answer
+  refers to.
+- **What the leaders did *not* answer is also informative.** XCalibur (25 Sep 14:43) asked directly:
+  - is the test set (including France) generated by the same process and noise as train?
+  - is the no-match proportion similar?
+  - is test S1 deduplicated?
+  - do matches always share the country label?
+  - how is the public/private split made?
+
+  The reply was the standard rules block and **none of these were answered.** So there is **no leaked hint about the
+  generator**: anything we assume about France's generator (for example the country-invariant constants in N2/N5)
+  stays *our inference*, not an organizer statement.
+
+## IV.1 Every substantive ruling → what it means for us
+
+| # | leaders' answer (quoted or condensed, date) | status in our pipeline | action |
+|---|---|---|---|
+| 1 | **"The same business can appear in different scripts across sources. For example, a name may be in an Indic script in one source and in Latin script in another, so your pipeline may need to match across scripts."** (25 Sep 12:07, repeated 19:24, 22:15) | Partly covered. `dicts.py` learns a native→Latin token dict from train pairs; tokens not in it fall back to **unidecode** (crude phonetics). Coverage of native tokens: train 97.8%, **test 96.4%**. The CEs see raw text | **New lever L1** (India) |
+| 2 | Transliteration explicitly allowed: **indic-transliteration, anyascii, uroman**, own rule-based code, and **pretrained transliteration models such as IndicXlit** (MIT/Apache, ≤ 8B, offline) (25 Sep 11:44, 12:29 and ~8 more) | we use none of them | feeds L1 |
+| 3 | **"Include every Source 2/Source 3 ID you believe refers to the same business … Do not keep only the topmost of content-identical records."** (25 Sep 03:32) | `ana/dups.py`: twin-completion changed tsim by +0.000000 (17 cases). But data shows 2.25% of S2 / 1.62% of S3 rows sit in content-identical groups (**France ~2.9%, the highest**) | **Check L2** (cheap) |
+| 4 | Test-set statistics allowed: TF-IDF, token frequencies, blocking index, **"counts of how many Source-1 records share a name"**, **popularity counts**, nearest-neighbour search over test (26 Sep 12:56, 18:43, 19:05) | done: `xf.py` computes commonness per split (test on test), `geo.py` learns city→state from provided records, ANN runs on test | none; cite these answers in the documentation's compliance section |
+| 5 | Self-training / pseudo-labels on test and synthetic pairs from provided records allowed (≥ 13 answers) | cef / cxf / cfs, `fr_aug.py`, `frlab` aux | none; confirms Part II |
+| 6 | **Country may be a feature, and script detection is allowed**, as long as country is an open set (25 Sep 01:42) | stage 2 is deliberately country-agnostic (`feats.py` line 1) | **New lever L3** (US/India) |
+| 7 | **Stricter threshold for a country unseen in training: "Yes"** (26 Sep 19:05, Q4) | fr=−2 via `unseen()` | also covers N5 (per-source δ for the unseen country): same kind of rule, still defined by "unseen", never by name |
+| 8 | **Private LB = the private score of your best *public* submission** (25 Sep 18:36; 26 Sep 12:56, 17:03) | known | **L6**: upload every useful variant, since a worse one costs nothing |
+| 9 | **"The private leaderboard is scored on the same test files … same three countries … France is in both the public and private splits"** (25 Sep 02:42, 12:07) | known | France δ / France-model effects measured on public **transfer to private**. Public-vs-private variance is sampling only, so do not over-read deltas < 0.00005 |
+| 10 | **5 submissions per team per day**; no need to submit every day (25 Sep 07:12) | — | today's remaining slots are the last. Use all of them |
+| 11 | Candidate set: **"Total pairs. This is a separate judging criteria beyond the public/private leaderboard score."** (26 Sep 12:56). Early answers said "in a cascade, the input to the first scoring model" (25 Sep 03:14, 06:35); later answers say "the last candidate set fed to your matching model" (25 Sep 17:59, 22:28) and "a pruned later stage is fine" (repeated) | cascade cut p1 ≥ 0.005 → 4.47 / S1 (7.74M pairs) | keep 0.005. In the documentation, **state both numbers** (103 / S1 first pass → 4.47 / S1 scored) and quote the *later* answers, so either reading of the rule is visibly satisfied |
+| 12 | Model rules: **per model**, ≤ 8B, MIT/Apache, offline, **fine-tuned only on provided data**; applies to embedder, reranker, matcher **and any preprocessing / augmentation model**; **licence is checked** (≥ 24 answers) | Qwen3-Reranker-4B, bge-v2-m3, bge-base, mMiniLM, MiniLM, e5-small, Qwen3-Reranker-0.6B: all MIT/Apache and ≤ 4B | **L5**: list every model with licence, params and HF revision in the zip (README already has most of it) |
+| 13 | **">8B … prohibited even for teacher model"** (26 Sep 18:11) | Qwen3-Reranker-8B (8.19B) was already excluded | L5: state explicitly that no > 8B model was used at any stage |
+| 14 | Packages bundling geo/postal/business data are prohibited (libpostal, gazetteers, **"large static country/state/city tables"**); **cleanco banned**; **small hand-written state lists fine, "city-level or postal tables are not"** (25 Sep 01:34, 13:50, 23:14; 26 Sep 00:47) | `norm.py` has hand-written state / region / department / street / legal lists (US_STATES, IN_STATES, FR_REGIONS, _FR_DEP, LEGAL…); **no city table**; `geo.py` learns city→state from provided records only | **L5**: confirm no city-level list crept in (e.g. inside `_FR_DEP` comments or `ana/`), and that `unidecode` (GPL, a library, not data) is acceptable. Keep it, it bundles no geo data |
+| 15 | **General-language resources are fine: "fastText, wordfreq fine"** (25 Sep 13:50, 21:37) | not used | **New lever L4** (France) |
+| 16 | "You are judged on your results and **reproducible code**"; top packages reviewed | `frlab_test.parquet` has **no generator script in the repo**; `fr_aug.py`, `geo.py`, `package.sh` untracked on Kushal's box | **L5 (must do)** |
+| 17 | Methodology document: **no page limit, "prioritize clarity and technical depth"** (25 Sep 03:03) | `Documentation.md` stale | L5 |
+| 18 | AI coding assistants allowed; AWS Entity Resolution **prohibited** | — | none |
+
+## IV.2 Actions derived from the leaders' answers (ranked)
+
+### L1 — Cross-script matching for India  (the only *explicit* modelling hint in the whole sheet)
+Why it matters: 22.7% of India S2 names and 11.5% of India S3 names contain **no Latin letter at all**, and the
+leaders went out of their way to say matching across scripts may be needed. Our stage-1/2 string features see those
+names only through the learned dict, and **unidecode** for the ~3.6% of test tokens the dict misses.
+
+1. **Gate first (15 min, CPU):** from the III.2-D slice report, compute tsim F0.5 and missed-pair share for India S1
+   whose matches are native-script records.
+   - Continue only if that slice's share of the India loss is above its share of India pairs (i.e. the slice is
+     under-served).
+2. **Feature path (tonight, CPU, ~1 h incl. retrain):** transliterate every native-script S2/S3 *name* with a
+   rule-based library the leaders named (**indic-transliteration** or **anyascii**, both offline, no data bundled).
+   Then compute `xl_ts`, `xl_jw`, `xl_pr` (token_set, Jaro-Winkler, partial ratio vs the S1 core name) plus
+   `xl_skel_eq` (consonant-skeleton equality, which absorbs vowel-length noise such as praaivett ↔ private).
+   - NaN for Latin records. Add as `extra=` columns to the best stage 2 and retrain on tsim.
+   - **Adopt** if India OOF improves by ≥ +0.00005 and US is unchanged.
+3. **CE text view (GPU, optional, after cfs):** score native-script band pairs a second time with the name replaced by
+   its transliteration (same view on the tsim and test bands, only those rows), then average with the raw score.
+   IndicXlit (MIT) gives better name transliteration than rule-based tools, but it is another model to verify and
+   license-check. Only use it if the rule-based feature shows a gain and GPU time remains.
+
+**Not tonight:** replacing unidecode inside `norm.py`. That changes every normalized field and needs the 9–12 h
+rerun. Put it in Part II §II.5 "if the deadline is later".
+
+### L2 — Content-identical twins  (CPU, 20 min, measurable)
+The leaders' rule "do not keep only the topmost of content-identical records" suggests that twins can belong to the
+same business.
+1. **On train GT:** for S2/S3 groups with identical (name, address, country), what fraction have *all* members
+   matched to the **same** S1? And what fraction have one member matched and the other unmatched?
+2. If "same S1" is ≥ 90%: add a **twin-completion** step. When a selected record has a twin, (a) make the twin a
+   candidate (a legitimate blocking channel: identical text) and (b) select it.
+   - Check on tsim, where the earlier measurement found only 17 affected cases because twins are usually already
+     both candidates.
+   - Re-measure with the *current* model (fx) and **on test France**, where twins are most frequent (~2.9%).
+3. If "same S1" is low: twins are deliberate distractors. Then the reverse rule helps precision: when twins compete
+   for different S1s, lower both. Test on tsim.
+
+Expected: tiny on tsim (already measured ~0), possibly non-zero on France. Cheap enough to settle.
+
+### L3 — Per-country stage 2 for US and India  (CPU, ~1 h, measurable)
+The leaders allow country as a feature (open set).
+- US (0.9907) and India (0.9917) have different noise: US names are token-neutral, while India S2 adds ~2 tokens by
+  transliteration; address Jaccard runs in opposite directions.
+- Variants:
+  1. Add `ctry_seen` as a categorical feature (US / India / other); for test France it is "other", so trees fall back
+     to shared splits.
+  2. Train US-only and India-only stage-2 models plus the pooled model. Use the country model for its country and the
+     pooled model for any unseen country. Blend in logit space with the pooled model per country, weight tuned on
+     tsim.
+- **Adopt** if tsim ≥ +0.00005 with ≥ 3 of 5 folds positive. France keeps the pooled model, so there is no France
+  risk.
+
+### L4 — Language-level word frequency for the generic-word swap  (France, CPU, ~40 min, LB-only)
+The leaders named **wordfreq** as allowed. The France failure mode is "a generic word swapped at the same address =
+different business" versus "a generic suffix dropped/added = same business".
+- Our IDF is corpus-based (measured +0.00002 via xf3).
+- A *language* frequency adds a new axis: whether the differing token is an ordinary dictionary word
+  (école, club, amicale, comité) or an invented / distinctive token (Iriirilum, Yumacalo).
+- Feature: `wf_diff_max` / `wf_diff_min` = wordfreq zipf of the tokens that differ between the two names, in the
+  record's language (en for US, fr for France; for India use en on the transliterated form). Retrain stage 2.
+- tsim can only show it is harmless; the benefit is France-side, so use one LB upload. Lower priority than L1–L3.
+
+### L5 — Compliance and reproducibility checklist  (**must do before zipping**, ~45 min)
+1. **Commit the `frlab_test` generator script.** It is used by `aux=` in fx/fxa/fxc and currently exists only in an
+   agent transcript.
+2. Commit `fr_aug.py`, `geo.py`, `package.sh`, and the uncommitted `ce.py` / `train.py` / `decide.py` diffs
+   (`aug=`, `aux=`, `ew=`, `norm1=`).
+3. Model table: name, licence, parameter count, HF revision for **every** model, including e5-small (ANN), all CEs,
+   and Qwen3-Reranker-0.6B/4B. Add a sentence saying no model > 8B was used at any stage, including as a teacher.
+4. Data compliance paragraph that quotes the leaders' answers:
+   - test-set statistics allowed;
+   - self-training / synthetic pairs allowed;
+   - stricter threshold for unseen countries allowed;
+   - hand-written state/legal/street lists allowed;
+   - no city-level or postal tables, no libpostal, no cleanco.
+5. Candidate set paragraph: 103 / S1 first pass → 4.47 / S1 fed to stage 2 (total 7.74M pairs), plus the recall
+   ceiling at each stage.
+6. `Documentation_template.md`: no page limit, so include the loss decomposition, the France method and the
+   ablation table.
+
+### L6 — Upload policy from the leaders' rules
+- Private = best public; public and private come from the same files; France is in both. So **every remaining slot
+  today should be used**. A weaker upload cannot hurt, and an extra variant is an extra draw at the best public.
+- Winner's curse is small because both splits are large, but prefer the variant with the better **tsim OOF** when two
+  public scores are within 0.00003.
+- The final zip must reproduce **exactly** the best-public upload (same `matching_results.tsv`, same candidate file).
+
+## IV.3 What the leaders' answers rule out or allow-but-skip
+- **> 8B anything** (teacher, generator, judge): prohibited. Nothing changes; we never used one.
+- **Offline ≤ 8B LLM as an augmentation model**: allowed ("a preprocessing/augmentation model counts" under the
+  limit). Not worth it tonight: the zero-shot LLM judge scored AUC 0.53, and a 7B generator is hours of GPU.
+- **Translation models / APIs**: online ones are banned. Offline translation is allowed but irrelevant, because the
+  data needs *transliteration* (same name, other script), not translation.
+- **City/postal tables, libpostal, cleanco**: banned. Keep geography learned from the provided records (`geo.py`) and
+  hand-written state lists only.
+
+## IV.4 Updated tonight order (Part II + III + IV merged)
+1. **N1** merge of the two machines' stacks + **fxq** → upload #1
+2. **cfs + aux** + winners of **N2 / N3 / III.2-A / L3** → upload #2
+3. **L1** cross-script features (if the slice gate passes) and **L2** twin rule → upload #3 (isolated India/France
+   deltas)
+4. **N5** per-source France δ or **L4** wordfreq → upload #4; keep one slot in reserve for a rollback
+5. **L5** checklist in parallel from 20:00; freeze at 21:00; zip = the best public upload
+
+Expected contribution of Part IV: **L1 +0.0000–0.0003 LB** (India is 47% of test, so an India-only +0.0005 OOF is
+worth about +0.00025 LB), **L3 +0.00002–0.0001**, **L2 ~0 to +0.0001**. Its biggest value is **L5**, because the top
+packages are audited before ranks are confirmed.
