@@ -1,5 +1,12 @@
 # plan.md — closing the gap to the top 3 (Amazon ML Challenge 2026, Business Entity Resolution)
 
+> **Read Part II first** (bottom of this file, written 17:30 IST after `analysis_summary`). It supersedes Part I
+> wherever they disagree:
+> - A2 (CE-competition features) is demoted: a linear probe measured +0.00003.
+> - A4 (re-probing the France shift) is dropped: the δ sweep is flat from −1 to −3.
+> - The France share of CE training data is ~67%, not 15%.
+> - §4 S2↔S3 mining, the empty-address recall track and MLM adaptation are measured dead ends.
+
 Written 2026-09-27 17:05 IST from `approach.md`, `EXPERIMENTS.md`, `VERSIONS.md`, `README.md`, `CHANGES_kushal_local.md`
 and the code in `er/src/`. The dataset, the Q&A PDF and `analysis_summary.pdf` were **not** available to this session, so
 every data claim below comes from the experiment log. Section 6 lists the EDA to run on the cluster to confirm them.
@@ -317,3 +324,159 @@ In order:
 2. Are both Blackwell GPUs free right now? B1 must start by ~17:45 IST.
 3. Please re-attach the Q&A PDF and `analysis_summary.pdf` if any organizer answer changes §2 (for example a limit on
    test-derived synthetic data).
+
+---
+---
+
+# Part II — after `analysis_summary` (written 17:30 IST, ~6.5 h to deadline)
+
+## II.0 What the new measurements change (facts only)
+
+| fact (from analysis_summary) | consequence for the plan |
+|---|---|
+| Train US and India have **identical generator constants**: 5.58% singletons, 3.461 matches/S1, the same per-source histograms (S2 at most 5, S3 at most 6, 80.5% of S1 matched in both sources) | France almost certainly shares them, which gives exact **label-free anchors** (II.2 N2, N5) |
+| US+India loss: 37.6% never blocked, 62.4% scored too low; **86% of the loss is under-prediction** | the precision side is saturated (0.9987); recall on contested pairs is where the gain is |
+| Of the 87,685 in-set true pairs we miss: **47% lost at one-to-one** (another S1 scored higher), 33% lost to margin 0.3, 20% lost in pick_ef; median p 0.32 | the biggest single pool is **S1-vs-S1 contests for the same record**, not thresholds (II.2 N3) |
+| Oracle-k 0.99309 vs 0.99112; every *global* rule variant is within ±0.00003 | only rules that add *new information* can move it (count prior, duel model), not re-tuning |
+| France: **8.18 candidates/S1, 3.52 band pairs/S1 (2.4× US/India)**; 10.7% of French S1 share an address with another S1 (4–5% US/India) | France is a *discrimination* problem at shared addresses |
+| Stage 2 is country-agnostic and tsim has no France, so **LightGBM weights a France specialist from US/India rows only** | a France CE only pays if it keeps US/India band AUC ≥ 0.9835 **and** ships with `aux=` French rows |
+| cxf beats cx by +0.00025 band AUC overall but **+0.00098 on the pairs we get wrong** | French adaptation targets exactly the contested cases, so keep investing there |
+| Data: S2 upper-cases 14–23% of names; S2/S3 inject **spurious accents** (France 24%, US 6.7%); 22.7% of India S2 names are fully native script | cheap **text-view TTA** for CE scoring (II.2 N4) |
+| Two machines hold two nearly independent CE stacks: Kushal has cx / cxf / qw, fx; m25csa019 has cer2 / ceq (4B) / cef / ceqf, fin5 / fin6 | the **cross-machine merge** is the cheapest real diversity left (II.2 N1) |
+
+**Measured dead — do not spend time here tonight:**
+- empty-address recall recovery: break-even precision 0.45, best achievable 0.32; every variant negative
+- S2↔S3 cross-source mining: 1.07× lift in regime; *anti-informative* in the band
+- MLM domain adaptation: bge-v2-m3 ships with no LM head, and there is no MLM code
+- France global δ re-probe: plateau between −1 and −3
+- decision-rule re-tuning, isotonic calibration, soft one-to-one: all within ±0.00003
+- `ew=1`: −0.00003
+- `xf3`, `pc_eq`, `st_eq` fixes
+- a 4B model *trained from scratch tonight*: scoring alone takes ~4.4 h per half
+
+## II.1 Already in flight (from the team's plan; keep it)
+qw merge → **fxq**, then cfs France specialist (warm start from cxf, ~67% French rows, `txt=raw`, matched halves) +
+`aux=s2mat_test:frlab_test` → **fxc**, then seeds and blend. Everything below is **additive**. Nothing here needs
+the GPUs before cfs finishes (~18:40).
+
+## II.2 New ideas, ranked by expected LB gain per hour (be ready to kill any of them)
+
+### N1 — Merge the two machines' stacks  ★ best EV, CPU only, ~1 h
+The team has two stage-2 families that barely share CE inputs:
+- **fx family** (cx, cxf, qw)
+- **fin5/fin6 family** (cer2, ceq = Qwen3-Reranker-**4B** decoder, cef, ceqf)
+
+Every time this project added *architectural* diversity it paid (ceb, cx, ANN). The 4B decoder is the most different
+model the team owns, and it is sitting on the other machine.
+
+(a) **Logit blend of stage-2 outputs:** `blend.py tags=fx(or fxc)+fin6 split=tsim grid=1`.
+  - Both were built on the same imported `s2mat` / tsim split, so `(id1,id2)` keys should align.
+  - **Gate:** assert ≥ 99.9% key overlap on tsim and test before trusting the OOF.
+(b) **One stage-2 with every CE column:** `extra=…+cer2_b1ka_*+ceq_b1ka_*+cef_b1ka_*` (test side: `ceqf` patched in
+  for unseen-country rows, as fin6 did).
+  - Check first that ceq's band is the same b1ka band (lo 0.003, hi 0.997). Otherwise NaN-fill; LightGBM handles it.
+
+Only needs copying ~10 parquets (oof/pte/CE columns, a few hundred MB). **Adopt** the better of (a) and (b) if OOF is
+≥ +0.00005. Expected **+0.0001–0.0004 OOF**, and more on the LB if ceq/ceqf carry French signal (the France
+amplification has been 3–10×).
+
+### N2 — Generator count prior in the decision  (CPU, ~40 min, measurable)
+`pick_ef` treats pair probabilities as independent and knows nothing about how many matches an S1 usually has. The
+generator does: the *k-th link hazard* P(K ≥ k+1 | K ≥ k) is 0.944, 0.943, 0.809, 0.666, 0.543, 0.439, 0.347, 0.268…
+(from the train histogram, identical for US and India). Per source there are hard caps: S2 ≤ 5, S3 ≤ 6.
+- Replace `e0 = Π(1−q)` and the set score with a prior-weighted expected F: P(K = k) ∝ prior(k) × likelihood from the
+  sorted q. Also enforce the per-source caps.
+- It is also a label-free check on France: France under-predicts (3.36 links/S1 vs 3.46).
+- This is *new information*, not a re-tune, so the saturation result does not rule it out.
+- **Kill** if tsim gain is < +0.00003.
+
+### N3 — Duel model for contested records  (CPU, ~1.5 h, measurable)
+41k of our misses are records that went to the wrong S1.
+- For every id2 with ≥ 2 candidate S1s, build pairs (A = best, B = runner-up) with **difference vectors** of *all*
+  pair features, including every CE column and address/house-number evidence. Train LightGBM on
+  "does A really own x?" (5-fold, same folds).
+- Feed `duel_p` back as a stage-3 feature, or re-rank one-to-one with it.
+- Variant: LightGBM `lambdarank` with `group = id2` (listwise over competing S1s, plus a "none" option).
+- This differs from the rejected "CE-margin" probe: that used one score's margin, this learns interactions across
+  ~120 feature differences.
+- **Kill** if < +0.00005.
+
+### N4 — Text-view TTA for the cross-encoders  (GPU after 18:40, ~45 min per view for one model)
+Score each band pair under extra views and average the logits:
+1. **Symmetric:** (t2, t1) as well as (t1, t2). Cross-encoders are order-sensitive.
+2. **Accent- and case-folded:** unidecode + lowercase both sides. S2/S3 inject spurious accents (France 24%) and
+   upper-case (S2 ~20%); S1 never does.
+
+To keep stage 2 consistent, TTA must be applied to **both** the tsim OOF band and the test band. Use the strongest
+single column (cxf or cfs), replace it with its TTA average, then retrain stage 2 (~25 min).
+- Expected: small on US/India, larger on France (its accent-injection rate is 4× the US rate).
+- **Kill** if US/India band AUC drops.
+
+### N5 — Per-source calibration for the unseen country  (CPU, 20 min + 1 upload)
+The global δ is at a plateau, but S2 and S3 are *different noise processes*: S3 rewrites addresses (address Jaccard
+0.48 vs 0.64 for S2) and truncates names more.
+- **Label-free diagnostic:** compare France's predicted per-source histograms (share of S1 with 0 S2 links, 0 S3
+  links, mean S2/S1 and S3/S1 links) with the invariant constants 13.04% / 12.07% / 1.674 / 1.788.
+- If one source deviates much more (likely S3), fit a **(country × source) δ** so each France histogram matches its
+  constant, and upload once.
+- Generic via `unseen()`, never naming France; organizer-allowed ("stricter threshold for unseen countries").
+
+### N6 — Per-country quantile alignment of CE columns  (CPU, ~40 min + 1 upload)
+French CE scores sit on a shifted scale (ceb French median −8.1 vs −3.1 on train). Stage 2 learned thresholds on
+US/India scale.
+- Add rank-within-country versions of each CE column (unsupervised test statistics, which are allowed) and retrain
+  stage 2.
+- tsim should be ≈ unchanged (US/India ranks are equivalent). The effect lands on France, so test it on the LB only
+  if an upload slot is free.
+- Risk: if France's true match rate in the band really is lower, ranks over-credit it. The per-source histograms from
+  N5 are the sanity check.
+
+### N7 — Cleaner French pseudo-labels by model agreement  (CPU, 15 min)
+- Rebuild `frpl` / `frlab` keeping a pair only where **fx, qw and ceq (if merged) agree** (all ≥ 0.97, or all
+  ≤ 0.02).
+- Drop any S1 whose pseudo-positive count breaks the generator caps (> 6 per source, or > 11 in total).
+- Use it for the aux rows of the final stage 2, and as extra rows for any later cfs continuation.
+- Different model families disagreeing is the cheapest label-noise detector available.
+
+### N8 — Unseen-country indicator + aux rows  (CPU, ~40 min, 1 upload, *risky*)
+Organizers allow country as a feature when treated as an open set. Add `unseen = country ∉ train countries` and
+train with `aux=` French rows, so stage 2 can learn **French-specific weights for the CE columns** (cfs especially)
+instead of US/India weights.
+- Circularity caveat: aux labels are our own predictions. It only helps because cfs/cxf carry *new* French signal
+  from exact-label synthetic data.
+- Ship it only as its own isolated upload, never merged silently into the best model.
+
+### N9 — Seeds and bagging of the final stage 2  (CPU, parallel with everything)
+Two to three seeds of the final configuration, then logit average. Measured noise is tiny, but free while the GPU
+runs.
+
+### Stretch (GPU, only if cfs finishes early and N4 is done)
+- qw continued on the larger French pool with N7 labels. Decoder diversity, 0.6B, ~2.5 h per half. **Abort** if it
+  cannot be scored by 21:00.
+
+## II.3 Revised upload plan (3–4 left; private = best public, so a weaker upload costs nothing but the slot)
+
+| # | when | content | why |
+|---|---|---|---|
+| 1 | ~18:00 | **fxq** (+ N1a blend with fin6, if the keys align) | biggest cheap, certain gain |
+| 2 | ~19:30 | **fxc** = cfs + aux + N7 labels + the winners of N2 / N3 / N1b | France specialist and US/India contest gains together |
+| 3 | ~20:45 | #2 + N4 TTA column **or** N5 per-source δ, whichever is ready, isolated so its delta is readable | France calibration |
+| 4 | reserve | N6 or N8 as a pure France probe, or a rollback | only if #3 went well |
+
+Freeze modelling at 21:00. Package the configuration with the **best public** score (candidate file = the pruned
+cascade set, validator PASS, `frlab` generator script committed, since it is currently missing from the repo).
+
+## II.4 Honest projection
+- **Likely:** N1 +0.0002–0.0005 LB, cfs+aux +0.0003–0.0008, N2/N3 +0.0000–0.0003 → **LB ≈ 0.9885–0.9895**.
+- **Upside:** ceq/ceqf carry France the way ceb did (+0.009 France F) and N5 fixes a source-specific France bias →
+  **~0.990–0.991**, which is top-3 territory.
+- Rank 3 needs France to rise ~+0.015–0.02 F. The ideas most likely to move France that much are N1 (the 4B decoder
+  stack), cfs, and N5, in that order.
+
+## II.5 If the deadline turns out to be later
+In priority order:
+1. France synthetic *world* (full pipeline on synthetic French S2/S3 with the learned operators and distractor mix)
+   → real offline France macro F.
+2. Stage 2 trained with that world included.
+3. ceq continued on France data (cef-style), full two halves.
+4. Normalization gaps (US St/Saint, CT/MT; FR frères/apt/bis) inside that rerun.
