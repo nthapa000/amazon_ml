@@ -26,3 +26,5 @@ OOF = macro F0.5 (split column says which: train = all train S1, tsim = test-lik
 | fin3_frm2 | 2026-09-27T01:27 | fin3 + fr=-2, full candidate set (103/S1, 176.7M pairs; tsv on /scratch) | tsim | 0.99112 | 0.99070 | 0.99173 | 0.99275 | 5819045 |  | /scratch/m25csa019/versions/fin3_frm2 |
 | fin4c | 2026-09-27T02:10 | fin3 with cef (French self-trained ceb) + final candidate set p1 >= 0.005 | tsim | 0.99107 | 0.99066 | 0.99168 | 0.99272 | 5840226 |  | /scratch/m25csa019/versions/fin4c |
 | fin4c_frm2 | 2026-09-27T02:14 | fin4c + fr=-2 (unseen-country shift); vs fin3c_frm2: 4020 France / 633 India / 597 US rows differ | tsim | 0.99107 | 0.99066 | 0.99168 | 0.99272 |  |  | /scratch/m25csa019/versions/fin4c_frm2 |
+| b34c | 2026-09-27T04:16 | blend fin3 0.6 + fin4 0.4 (logit) + final candidate set p1 >= 0.005 | tsim | 0.99108 | 0.99068 | 0.99169 | 0.99273 | 5838049 |  | /scratch/m25csa019/versions/b34c |
+| b34c_frm2 | 2026-09-27T04:17 | b34c + fr=-2 (unseen-country shift) - vs fin3c_frm2 2146 rows differ - vs fin4c_frm2 3151 | tsim | 0.99108 | 0.99068 | 0.99169 | 0.99273 | 5819024 |  | /scratch/m25csa019/versions/b34c_frm2 |

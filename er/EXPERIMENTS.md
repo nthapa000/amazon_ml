@@ -132,4 +132,30 @@ Notes
 - Remaining misses: very common names (>60 S1 share the core name) with empty/city-only S2 address; DBA names with partial address.
 
 - 27 Sep ~03:00 label-free self-check (ana/selfcheck.py, friend's method; beliefs = raw stage-2 p, selection = uploaded one with fr=-2). tsim: F_est 0.99447 vs true 0.99107 (F_est optimistic by ~0.0034: misses outside the candidates are ignored). Test France: fin3c F_est 0.98201, viol (records with sum p > 1) 3.62%, own_rate 0.8233, 3.236 links/S1; fin4c (French CE) F_est 0.98144, viol 3.37% (-7% relative), own_rate 0.8261, 3.243 links/S1. US/India identical. F_est rates the fr=-2 shift as harmful (fin3c France 0.98539 unshifted -> 0.98201) although the LB showed it helps -> self-graded F_est cannot rank France changes; only the viol drop favours fin4c. Inconclusive; LB needed.
-- 27 Sep ~04:00 step 3 (job 41443): fin3 seed 2 (fin3s2) 0.991114 vs fin3 0.991115 (seed noise ~0.000001). Blends (logit, weights tuned on OOF, decision re-tuned): b33 fin3+fin3s2 0.991117 (+0.000002), b34 fin3+fin4 (0.6/0.4) 0.991122 (+0.000007), b343 all three 0.991121 (+0.000006). All far below the 0.0001 bar -> no blend adopted; seeds/blends are saturated. Remaining lever: Qwen3-Reranker-4B (ceq).
+- 27 Sep ~04:00 step 3 (job 41443): fin3 seed 2 (fin3s2) 0.991114 vs fin3 0.991115 (seed noise ~0.000001). Blends (logit, weights tuned on OOF, decision re-tuned): b33 fin3+fin3s2 0.991117 (+0.000002), b34 fin3+fin4 (0.6/0.4) 0.991122 (+0.000007), b343 all three 0.991121 (+0.000006). All far below the 0.0001 bar. USER DECISION: keep small gains (leaderboard gaps are tiny) -> b34 ADOPTED: release b34c OOF 0.991082 (fin3c 0.991074, fin4c 0.99107), b34c_frm2 PASS; differs from fin3c_frm2 in 2146 rows, from fin4c_frm2 in 3151. Remaining big lever: Qwen3-Reranker-4B (ceq).
+
+- 10:44 Unsupervised last-word probe (ana/noise_words.py, ana/lw_probe.py; no labels used on France, checked against
+  labelled US/India first): candidate pairs (stage-1 p>=0.001) whose core names differ ONLY in the last word split into
+  three classes by comparing S2/S3-vs-S1 last-word frequency within each country (no labels): 'garbled' (typo-like,
+  rapidfuzz ratio 50-99) match rate 0.84-0.90 on tsim; 'noise-word' (last word is one over-represented on S2/S3 vs S1,
+  e.g. center/services/partners for US/India, developpement/groupe/participations/holding/international/associes for
+  France) match rate 0.78-0.90 on tsim; 'ordinary' (a genuinely different word) match rate only 0.07-0.14 on tsim --
+  confirms the CHANGES_kushal_local.md France hypothesis (generic-word swap = same business; distinctive-word swap =
+  different business) and gives an unsupervised, France-native word list. France's own class-mean stage-1 p (0.51 /
+  0.67 / 0.18) matches the same three-way ordering as US/India, so the pattern transfers.
+- 10:44 src/fradapt.py: added generic_suffixes() (unsupervised, from the country's own provided test records only,
+  same method as ana/noise_words.py) and two new noise() mutations for the 'syn' synthetic-positive pairs only (s1neg
+  unchanged): drop/add/swap a generic last word (rates ~0.08/0.08/0.08, near the measured frequencies) and light
+  character transposition on one token (~0.12). Old noise() only touched legal forms/formatting/one dropped char --
+  never the dominant truncation/generic-suffix pattern behind low-score true matches. New set fra_b1kb (out= renamed
+  from fra_b1ka to keep cef's already-built inputs reproducible): same pos/neg/s1neg pools (unchanged), improved syn.
+  Sample-checked: mutations fire correctly ("... SCI" -> "... participations", "Collège" -> "OCLLÈGE").
+- 10:44 src/ce.py: two independent additions, CPU-tested against real data (no GPU -- both held by ceq): (1) LoRA
+  init= resume fix -- transformers 5.17.0 auto-reloads a saved adapter dir FROZEN (is_trainable=False hard-defaulted)
+  and the old `if lora:` line then stacked a second blank adapter on top; fixed via explicit
+  PeftModel.from_pretrained(base, dir, is_trainable=True). Verified: old path reloads requires_grad=False, new path
+  requires_grad=True with weight values identical to the trained adapter (not reinitialized). (2) unseen=1 option:
+  re-score only unseen-country (France) test band pairs -- 908,542 of 3,067,262 (29.6%) -- instead of the full band,
+  cutting the continued model's re-score from ~5h to ~1h per half; merge(unseen=1 base=<model>) patches just those
+  rows into the base model's oof/pte files (US/India rows byte-identical, OOF file untouched, verified on real
+  cef_b1ka files: 0 non-French rows changed, French rows = exact average of the two halves).

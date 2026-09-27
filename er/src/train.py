@@ -1,6 +1,7 @@
 """LightGBM matcher with 5-fold GroupKFold by S1 id (hash) -> OOF on train pairs + averaged test preds.
 
 python train.py tr=f_cand1_train te=f_cand1_test tag=s1 frac=0.35 [extra=ctx_train:ctx_test]
+  [models=<tag> alias=new:old  (no training: re-score test with the saved fold models of <tag>)]
 Writes W/oof_{tag}.parquet (id1,id2,y,p) and W/pte_{tag}.parquet (id1,id2,p).
 """
 import os
@@ -51,6 +52,27 @@ def load(name, extra=None, keep=None):
     return d
 
 
+def predict_only(kv, ex, keep, t0):
+    """models=<tag>: reuse the saved fold models of an earlier run with the same training data and only re-score the test
+    pairs, e.g. after a test-side feature was patched (ce.py merge unseen=1). alias=new:old[+...] renames a test column to
+    the name the models were trained with. OOF = the earlier run's OOF (same models)."""
+    src = kv['models']
+    models = [lgb.Booster(model_file=f'{W}/lgb_{src}_{k}.txt') for k in range(NF)]   # saved at the best iteration
+    feats = models[0].feature_name()
+    pl.read_parquet(f'{W}/oof_{src}.parquet').write_parquet(f'{W}/oof_{kv["tag"]}.parquet')
+    te = load(kv['te'], ex[1], keep[1])
+    for a in kv['alias'].split('+') if kv.get('alias') else []:
+        new, old = a.split(':')
+        te = te.rename({new: old})
+    pte = np.zeros(te.height, dtype=np.float32)
+    step = 5_000_000
+    for i in range(0, te.height, step):
+        Xs = te.slice(i, step).select(feats).to_numpy().astype(np.float32)
+        pte[i:i + Xs.shape[0]] = np.mean([m.predict(Xs) for m in models], 0)
+    te.select('id1', 'id2').with_columns(p=pte).write_parquet(f'{W}/pte_{kv["tag"]}.parquet')
+    print(f'models of {src}: test re-scored {te.height} {time.time() - t0:.0f}s', flush=True)
+
+
 def main(kv):
     t0 = time.time()
     ex = kv.get('extra', '').split(':') if kv.get('extra') else [None, None]
@@ -60,6 +82,8 @@ def main(kv):
         keep = [pl.scan_parquet(f'{W}/{f}.parquet').filter(pl.col('p') >= float(thr)).select('id1', 'id2').collect()
                 for f in (a, b)]
         print('cascade keep', keep[0].height, keep[1].height, flush=True)
+    if kv.get('models'):
+        return predict_only(kv, ex, keep, t0)
     tr = load(kv['tr'], ex[0], keep[0])
     gt = pl.read_parquet(gt_path(kv.get('split', 'train'))).select(enc('s1').alias('id1'), enc('id2').alias('id2'),
                                                           y=pl.lit(1, pl.Int8))

@@ -417,3 +417,19 @@ Reaching 0.988–0.989 OOF is plausible. None of these gains are guaranteed; eac
 - 23:20 Final-day plan (user approved; this session executes, the other session only analyses): L4 unseen-country shift done; L1 French noisy student running (jobs/cef.dag: smoke -> 2-GPU cef, ceb warm start + fra_b1ka + US/India replay) -> stage 2 with cef replacing ceb -> fold check -> 'c' release + fr=-2 -> upload. Uploads: 6 left; upload 1 = package-consistent winner of fin3/fin2 ('c' + fr=-2); B (fin2_frm2, full set) NOT to be uploaded. Freeze Sun ~16:00, zip by ~20:00.
 - 00:55 fin3 adopted (+0.000159 OOF, all folds). Upload 1 = fin3c_frm2 (release job 41396). ceq 4B run launched (1.2M x 2 epochs, 2 Blackwells in one job). fin4 = fin3 + cef (replaces ceb) after cef merge. Final deadline 20:00.
 - 27 Sep 02:15: /csehome full (shared FS, 30 MB free). Moved old submission folders (c1a..w2a, probes except probe_fin_frm2) to /scratch/m25csa019/sub_archive (verified copies).
+- 05:20 `ce.py` fix (before `ceq` finishes, so it's ready the moment `ceq_b1ka_h{0,1}` save): `init=` reload of a saved
+  LoRA adapter was silently frozen (transformers 5.17.0 auto-loads it via `AutoModelForSequenceClassification.from_pretrained`
+  with `is_trainable=False` hard-defaulted, then the old `if lora:` line stacked a second, blank adapter on top instead of
+  resuming it -- no crash, no error, just wrong). Fixed: detect a saved adapter dir, reload via
+  `PeftModel.from_pretrained(base, dir, is_trainable=True)` instead, skip `get_peft_model` for that case. CPU-only mechanism
+  test (scratchpad, tiny cached model, no GPU -- both held by `ceq`) confirms: old path reloads `requires_grad=False`; new
+  path reloads `requires_grad=True` with weight values identical to the trained adapter (not reinitialized). Ready for the
+  ~11am `ceq_b1ka_h{0,1}` -> Kushal handoff (gated on fin4's LB result per the plan).
+- 27 Sep 11:05 (user: work until 22:00, no 16:00 freeze; run the French 4B `ceqf` regardless, side by side with fin5; 4 uploads left;
+  team best public = Kushal 0.987862). Pipeline: `ceq` (job 41397) -> `jobs/fin56.dag` (runner started 11:02, logs/dag_fin56.log):
+  w5 waits for 41397 -> f5 (`jobs/par.sbatch`: fin5a = fin3 + ceq and fin5b = fin4 + ceq in parallel, blend -> fin5, fold check vs
+  b34, release fin5c / fin5c_frm2) -> w6 waits for `ceqf_b1ka_test` -> f6 (fin6 = fin5's saved fold models re-scoring test with
+  ceqf patched into unseen-country pairs: `train.py models=<tag> alias=ceqf:ceq`, no retraining; release fin6c / fin6c_frm2;
+  `ana/diff_country.py` must show only French rows changed). ceqf = GPU job via jobs/bw_retry.sh (gpu2bw.sbatch):
+  init=ceq_b1ka, 200k fra_b1ka + 150k US/India replay, lr 2.5e-5, 1 epoch, unseen=1 (908,542 French test band pairs),
+  merge unseen=1 base=ceq. Launch after the real-adapter load test (~11:30).

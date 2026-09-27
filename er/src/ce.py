@@ -5,10 +5,12 @@ models score the test band (averaged). Output feature `ce` (logit) for band pair
 
 python ce.py split=tsim tag=t1 lo=0.02 hi=0.98 ntr=2000000 model=cross-encoder/ms-marco-MiniLM-L6-v2
   [half=h] [init=ceb_b1ka (warm start from W/models/<init>_h<h>)] [extra=fra_b1ka (added training pairs)]
+  [unseen=1 (re-score only unseen-country test pairs, no OOF; merge=1 unseen=1 base=<model> patches them into the base model's files)]
 -> W/ce_{tag}_train.parquet, W/ce_{tag}_test.parquet  (id1, id2, ce)
 """
 import os
 import sys
+import json
 import time
 
 import numpy as np
@@ -76,17 +78,31 @@ def predict(model, tok, d, bs=1024):
 
 
 def train(mname, d, epochs=1, bs=256, lr=4e-5, lora=0):
+    # FIX 2026-09-27: mname can be a saved LoRA adapter dir (init=<tag> from a prior lora= run, e.g. ceq_b1ka).
+    # AutoModelForSequenceClassification.from_pretrained() auto-detects that and reloads it FROZEN
+    # (is_trainable=False, hard-defaulted, no override available through this call) -- and the `if lora:`
+    # branch below would then stack a SECOND, freshly-initialized adapter on top instead of resuming the
+    # saved one. Load the saved adapter explicitly with is_trainable=True instead, and skip get_peft_model.
+    is_adapter = os.path.exists(os.path.join(mname, 'adapter_config.json'))
     tok = AutoTokenizer.from_pretrained(mname)
     if tok.pad_token is None:
         tok.pad_token = tok.eos_token
     kw = dict(dtype=torch.bfloat16) if AMP == torch.bfloat16 else {}
-    model = AutoModelForSequenceClassification.from_pretrained(mname, num_labels=1, ignore_mismatched_sizes=True, **kw)
-    model.config.pad_token_id = tok.pad_token_id
-    if lora:                                             # LoRA on all linear layers + trainable new score head
-        from peft import LoraConfig, get_peft_model
-        model = get_peft_model(model, LoraConfig(r=lora, lora_alpha=2 * lora, lora_dropout=0.05, target_modules='all-linear',
-                                                 modules_to_save=['score'], task_type='SEQ_CLS'))
+    if is_adapter:
+        base = json.load(open(os.path.join(mname, 'adapter_config.json')))['base_model_name_or_path']
+        model = AutoModelForSequenceClassification.from_pretrained(base, num_labels=1, ignore_mismatched_sizes=True, **kw)
+        model.config.pad_token_id = tok.pad_token_id
+        from peft import PeftModel
+        model = PeftModel.from_pretrained(model, mname, is_trainable=True)
         model.print_trainable_parameters()
+    else:
+        model = AutoModelForSequenceClassification.from_pretrained(mname, num_labels=1, ignore_mismatched_sizes=True, **kw)
+        model.config.pad_token_id = tok.pad_token_id
+        if lora:                                             # LoRA on all linear layers + trainable new score head
+            from peft import LoraConfig, get_peft_model
+            model = get_peft_model(model, LoraConfig(r=lora, lora_alpha=2 * lora, lora_dropout=0.05, target_modules='all-linear',
+                                                     modules_to_save=['score'], task_type='SEQ_CLS'))
+            model.print_trainable_parameters()
     model = model.to(DEV)
     ds = list(zip(d['t1'].to_list(), d['t2'].to_list(), d['y'].cast(pl.Float32).to_list()))
     dl = DataLoader(ds, batch_size=bs, shuffle=True, collate_fn=Coll(tok, ML), num_workers=6, drop_last=True)
@@ -114,6 +130,15 @@ def train(mname, d, epochs=1, bs=256, lr=4e-5, lora=0):
     return model, tok
 
 
+def keep_unseen(pairs):
+    """test pairs (id1, id2, ...) -> only those whose S1 country never occurs in training (decide.unseen; no country is named here)."""
+    from decide import unseen
+    s1 = pl.read_parquet(f'{W}/n_test_s1.parquet', columns=['id', 'country'])
+    uc = unseen(s1)
+    print('unseen-country test pairs only:', uc, flush=True)
+    return pairs.join(s1.filter(pl.col('country').is_in(uc)).select(enc('id').alias('id1')), on='id1', how='semi')
+
+
 def main(kv):
     global AMP, ML
     AMP = torch.bfloat16 if kv.get('bf16') == '1' else torch.float16
@@ -130,6 +155,10 @@ def main(kv):
     if 'lim' in kv:
         band, tband = band.sample(int(kv['lim']), seed=0), tband.head(int(kv['lim']))
     print('band train', band.height, 'pos', band['y'].sum(), 'band test', tband.height, flush=True)
+    only_unseen = kv.get('unseen') == '1'     # continued model: re-score ONLY unseen-country test pairs (no OOF); see merge()
+    if only_unseen:
+        tband = keep_unseen(tband)
+        print('band test (unseen countries only)', tband.height, flush=True)
     mode = kv.get('txt', 'norm')
     tx = texts(split, mode)
     txt = texts('test', mode)
@@ -157,19 +186,22 @@ def main(kv):
             md = f"{os.environ.get('ER_MODELS', W + '/models')}/{kv.get('name', 'ce')}_{tag}_h{h}"
             model.save_pretrained(md)
             tok.save_pretrained(md)
-        vb = attach(band.filter(pl.col('h') == h).select('id1', 'id2'), tx)
-        vb = vb.with_columns(ce=pl.Series(predict(model, tok, vb, int(kv.get('pbs', 1024)))))
-        res.append(vb.select('id1', 'id2', 'ce'))
-        print(f'half {h} oof scored {vb.height} {time.time() - t0:.0f}s', flush=True)
+        if not only_unseen:
+            vb = attach(band.filter(pl.col('h') == h).select('id1', 'id2'), tx)
+            vb = vb.with_columns(ce=pl.Series(predict(model, tok, vb, int(kv.get('pbs', 1024)))))
+            res.append(vb.select('id1', 'id2', 'ce'))
+            print(f'half {h} oof scored {vb.height} {time.time() - t0:.0f}s', flush=True)
         pt += predict(model, tok, tband, int(kv.get('pbs', 1024))) / len(hs)
         print(f'half {h} test scored {time.time() - t0:.0f}s', flush=True)
         del model
         torch.cuda.empty_cache()
-    oo = pl.concat(res)
     nm = kv.get('name', 'ce')
     sfx = f'_h{hs[0]}' if len(hs) == 1 else ''
-    oo.rename({'ce': nm}).write_parquet(f'{W}/{nm}_{tag}_train{sfx}.parquet')
     tband.select('id1', 'id2').with_columns(pl.Series(nm, pt)).write_parquet(f'{W}/{nm}_{tag}_test{sfx}.parquet')
+    if only_unseen:                                        # no OOF scores by design: merge(unseen=1) keeps the base model's OOF column
+        return
+    oo = pl.concat(res)
+    oo.rename({'ce': nm}).write_parquet(f'{W}/{nm}_{tag}_train{sfx}.parquet')
     # quick diagnostic: AUC of ce vs p inside the band
     from sklearn.metrics import roc_auc_score
     chk = band.join(oo, on=['id1', 'id2'])
@@ -177,8 +209,23 @@ def main(kv):
 
 
 def merge(kv):
-    """combine the two half jobs: OOF band scores concatenated, test scores averaged."""
+    """combine the two half jobs: OOF band scores concatenated, test scores averaged.
+    unseen=1 base=<model>: the halves ran with unseen=1 (only unseen-country test pairs scored, no OOF). Result = the base model's
+    OOF and test files under column `name`, with the score of those test pairs replaced by the two halves' average, so US/India rows
+    (train and test) are exactly the base model's."""
     nm, tag = kv['name'], kv['tag']
+    if kv.get('unseen') == '1':
+        base = kv['base']
+        te = [pl.read_parquet(f'{W}/{nm}_{tag}_test_h{h}.parquet') for h in (0, 1)]
+        new = te[0].join(te[1].rename({nm: 'b'}), on=['id1', 'id2']).select('id1', 'id2', ((pl.col(nm) + pl.col('b')) / 2).alias('new'))
+        bt = pl.read_parquet(f'{W}/{base}_{tag}_test.parquet').rename({base: nm})
+        assert new.join(bt.select('id1', 'id2'), on=['id1', 'id2'], how='anti').height == 0, 'halves scored pairs the base model does not have'
+        out = bt.join(new, on=['id1', 'id2'], how='left').with_columns(pl.coalesce(pl.col('new'), pl.col(nm)).alias(nm)).drop('new')
+        assert out.height == bt.height
+        out.write_parquet(f'{W}/{nm}_{tag}_test.parquet')
+        pl.read_parquet(f'{W}/{base}_{tag}_train.parquet').rename({base: nm}).write_parquet(f'{W}/{nm}_{tag}_train.parquet')
+        print(f'patched {new.height} of {bt.height} test pairs with the continued model; the other {bt.height - new.height} and all OOF rows are the base model', flush=True)
+        return
     tr = pl.concat([pl.read_parquet(f'{W}/{nm}_{tag}_train_h{h}.parquet') for h in (0, 1)])
     te = [pl.read_parquet(f'{W}/{nm}_{tag}_test_h{h}.parquet') for h in (0, 1)]
     te = te[0].join(te[1].rename({nm: 'b'}), on=['id1', 'id2']).with_columns(((pl.col(nm) + pl.col('b')) / 2).alias(nm)).drop('b')
