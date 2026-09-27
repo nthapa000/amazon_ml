@@ -434,6 +434,63 @@ Only needs copying ~10 parquets (oof/pte/CE columns, a few hundred MB). **Adopt*
 ≥ +0.00005. Expected **+0.0001–0.0004 OOF**, and more on the LB if ceq/ceqf carry French signal (the France
 amplification has been 3–10×).
 
+#### N1 recipe — from the merged stack to both submission files (incl. `candidate_pairs.tsv`)
+
+**The merge does not change how the candidate file is made.**
+- `candidate_pairs.tsv` = first-pass candidates (keys + expansion + ANN) filtered by the **stage-1** score, via
+  `cands.py` (p1 ≥ thr). It never depends on stage 2.
+- Both machines use the same stage-1 scores, `b1ka` (Kushal's copy was rebuilt from the teammate's `s2mat` `c_p`),
+  and the same 9.19M test pairs of `s2mat`.
+- Pair keys are portable: `block.enc()` is a deterministic function of the ID string (`S2-123` → 2·10¹⁰ + 123), so
+  `(id1, id2)` joins line up across machines.
+- **Only `matching_results.tsv` changes.** The candidate file is simply regenerated with the same cut.
+
+```bash
+source jobs/env.sh
+# 0. copy from the teammate (read-only): oof_/pte_ for fin6 (UN-pruned, not fin6c), and for option (b) the CE columns
+#    cer2_b1ka_{train,test}, ceq_b1ka_{train,test}, cef_b1ka_{train,test}, ceqf_b1ka_test + dec_fin*.json
+
+# 0b. key-overlap gate (must be >= 99.9% on tsim and on test, else stop and investigate)
+$PY - <<'EOF'
+import polars as pl, os; W=os.environ['ER_WORK']
+for k in ('oof','pte'):
+    a=pl.read_parquet(f'{W}/{k}_fx.parquet',columns=['id1','id2']); b=pl.read_parquet(f'{W}/{k}_fin6.parquet',columns=['id1','id2'])
+    n=a.join(b,on=['id1','id2'],how='inner').height; print(k, a.height, b.height, 'overlap', n/max(a.height,b.height))
+EOF
+
+# 1a. merged scores, option (a): logit blend of the two stage-2 families
+$PY src/blend.py tags=fx+fin6 out=mrg split=tsim grid=1
+# 1b. or option (b): one stage 2 with every CE column -> tag=mrg (train.py extra=...+cer2_b1ka_*+ceq_b1ka_*+cef_b1ka_*)
+
+# 2. final candidate set (stage-1 p1 >= 0.005) + restrict the merged predictions to it
+#    -> W/cand_test_final.parquet, W/oof_mrgc.parquet, W/pte_mrgc.parquet (asserts every candidate has a merged score)
+$PY src/cands.py s1=b1ka fin=mrg thr=0.005 out=mrgc
+
+# 3. decision config (tune, ~20 min; or cp dec_fx.json dec_mrgc.json because the grid is saturated), then write BOTH files
+$PY src/decide.py tune tag=mrgc split=tsim
+$PY src/decide.py apply tag=mrgc out=$ER_OUT/mrgc cand=cand_test_final fr=-2
+
+# 4. validate: must print PASS, with no "matched ID not in candidates" warning
+python3 ../student_resource/utils/validate_submission.py --matching $ER_OUT/mrgc/matching_results.tsv \
+  --candidate $ER_OUT/mrgc/candidate_pairs.tsv --test-dir $ER_DATA/test
+```
+
+**Traps:**
+1. **Always pass `cand=cand_test_final`.** `decide.py apply` defaults to `cand=cand_test`, the raw blocking set
+   (~103 / S1). That would be judged on the separate candidate-size criterion.
+2. **The two machines currently ship different cuts.**
+   - Kushal's `out/fx` and `out/cx1`: `candidate_pairs.tsv` = 140.8 MB = the p1 ≥ 0.001 set (5.30 / S1).
+   - Teammate's `finc` / `fin3c`: 122 MB = the p1 ≥ 0.005 set (4.47 / S1).
+   - Use **one cut for the merged submission: 0.005** (16% fewer pairs, −0.00004 OOF).
+   - Blend the **un-pruned** versions (`fx`, `fin6`) and prune once with `cands.py`. Blending an already-pruned
+     member makes `blend.py` fill the pairs it dropped with the other member's score alone.
+3. `cands.py`'s `assert` fails if any candidate lacks a merged score. That means the key overlap is broken; go back
+   to step 0b.
+4. **`fr=-2` was fitted to `fin`'s score distribution.** After the merge, check France's predicted-empty rate and
+   links / S1 against US/India (A4 / N5). Use a second upload for a France δ variant only if a slot is free.
+5. **For the zip:** the code that produces the candidate file is stage 1 (`b1ka`) + `cands.py`. Include both, and
+   state both numbers in the documentation: ~103 / S1 first pass → **4.47 / S1 fed to stage 2 (7.74M pairs)**.
+
 ### N2 — Generator count prior in the decision  (CPU, ~40 min, measurable)
 `pick_ef` treats pair probabilities as independent and knows nothing about how many matches an S1 usually has. The
 generator does: the *k-th link hazard* P(K ≥ k+1 | K ≥ k) is 0.944, 0.943, 0.809, 0.666, 0.543, 0.439, 0.347, 0.268…
