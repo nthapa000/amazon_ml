@@ -433,3 +433,11 @@ Reaching 0.988–0.989 OOF is plausible. None of these gains are guaranteed; eac
   `ana/diff_country.py` must show only French rows changed). ceqf = GPU job via jobs/bw_retry.sh (gpu2bw.sbatch):
   init=ceq_b1ka, 200k fra_b1ka + 150k US/India replay, lr 2.5e-5, 1 epoch, unseen=1 (908,542 French test band pairs),
   merge unseen=1 base=ceq. Launch after the real-adapter load test (~11:30).
+- 27 Sep 11:17 prep done. (1) `train.py models=<tag> alias=new:old` predict-only re-scoring: reproduces fin3's test predictions exactly
+  (max |dp| 0.0, 11 min; job 41505) -> fin6 ~40 min after ceqf. (2) ceq real-adapter load test (CPU): 33M trainable (LoRA + score
+  head), saved tensors reload unchanged, trained head active. (3) ceqf queued (41515, pending on GPU quota behind 41397), reads
+  `fra_ceqf.parquet` -> symlink to `fra_b1kb` (user: use b1kb if ready; other session's set: same neg/s1neg rows, pos = independent
+  resample of the same pool, syn with generic last-word changes). `fradapt.py lw=0` = original noise (cef's fra_b1ka).
+  (4) final.dag: 22 steps (opt, cer, fin2, fra, fra2, cef, cer2, ceq, fin5, ceqf, fin6, out), run_all.sh regenerated (74 commands);
+  README (models, pinned HF revisions, torch 2.7.1+cu128 + peft, steps 11-22), requirements.txt, Documentation.md sections 4/5
+  updated; final numbers marked ⟨TBD⟩ (fill after fin5/fin6 + LB). If the final is fin5 (not fin6): final.dag `out` -> fin5.

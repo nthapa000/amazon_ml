@@ -6,9 +6,13 @@ For S1 entities whose country never occurs in training (decide.unseen), from the
 - neg:   teacher-confident non-matches that look alike: p <= 0.02 and max(name, address) token_set_ratio >= 80
 - s1neg: two distinct S1 records (Source 1 is deduplicated -> different businesses: exact labels) that share the
          normalized address or the core name; one side is noised so that formatting cannot give the label away
-- syn:   an S1 record vs a noised copy of itself (exact positive)
+- syn:   an S1 record vs a noised copy of itself (exact positive). The copy also gets the single most common
+         true-match name difference (ana/lw_probe.py, checked against labelled US/India before being trusted
+         on an unseen country): a generic last word dropped, added or swapped in, plus light character
+         garbling on one word -- the two dominant patterns behind low-score TRUE matches, not previously
+         represented in this set (the old noise() only touched legal forms, formatting and one dropped char).
 The pos / neg cutoffs are also applied to tsim (labelled) to report pseudo-label precision.
-python fradapt.py tag=fin2 out=fra_b1ka [npos=200000 nneg=200000 ns1=150000 nsyn=100000]
+python fradapt.py tag=fin2 out=fra_b1kb [npos=200000 nneg=200000 ns1=150000 nsyn=100000] [lw=0: original noise, fra_b1ka]
 -> W/{out}.parquet (t1, t2, y, kind), texts in the ce.py raw format
 """
 import os
@@ -40,8 +44,30 @@ def fmt(n, a):
     return (f'name: {n} | address: {a if a else "none"}')[:200]
 
 
-def noise(n, a):
-    """formatting noise of the kind seen between sources (hand-written, no labels involved)"""
+def generic_suffixes(uc, min_excess=0.004, top=12):
+    """Last-name-words far more common on S2/S3 than on S1, within these (unseen) countries -- unsupervised, no
+    labels: computed only from the provided test records' own word frequencies (same method as ana/noise_words.py,
+    checked there against labelled US/India: these turn out to be mostly TRUE-match suffixes a business's own
+    S2/S3 records add, drop or swap in -- e.g. 'groupe'/'developpement' for France, 'services'/'center' for
+    US/India -- not distinguishing words). Used to make the synthetic positives below realistic."""
+    def last_freq(ks):
+        d = pl.concat([pl.read_parquet(f'{W}/n_test_s{k}.parquet', columns=['country', 'core']) for k in ks])
+        d = d.filter(pl.col('country').is_in(uc)).with_columns(
+            w=pl.col('core').fill_null('').str.split(' ').list.last().fill_null(''))
+        d = d.filter(pl.col('w') != '')
+        return d.group_by('w').len('n').with_columns(f=pl.col('n') / pl.col('n').sum())
+    f1, f2 = last_freq((1,)), last_freq((2, 3))
+    ex = f2.join(f1.select('w', pl.col('f').alias('f1')), on='w', how='left').with_columns(
+        ex=pl.col('f') - pl.col('f1').fill_null(0)).filter(pl.col('ex') >= min_excess).sort('ex', descending=True)
+    gw = ex.head(top)['w'].to_list()
+    print('generic suffix words (learned, unsupervised, from the provided test records):', gw, flush=True)
+    return gw
+
+
+def noise(n, a, gw=None):
+    """formatting noise of the kind seen between sources (hand-written, no labels involved).
+    gw (optional, from generic_suffixes()): also apply the two dominant TRUE-match name differences --
+    a generic last word dropped / added / swapped in, and light character garbling on one word."""
     if a:
         if RND.random() < 0.5:
             for rx, ds in REG:
@@ -68,6 +94,22 @@ def noise(n, a):
             r = RND.random()
             n = re.sub(rf'\b{s}\b', d if r < 0.3 else ('' if r < 0.5 else s), n).strip()
             break
+    if gw:
+        toks, r = n.split(), RND.random()
+        if len(toks) >= 3 and r < 0.08:                      # truncation: drop the last word
+            n = ' '.join(toks[:-1])
+        elif r < 0.16:                                        # add a generic suffix word
+            n = n + ' ' + RND.choice(gw)
+        elif len(toks) >= 2 and r < 0.24:                     # swap the last word for a generic one
+            n = ' '.join(toks[:-1] + [RND.choice(gw)])
+        toks = n.split()
+        if toks and RND.random() < 0.12:                      # light character garbling on one word (typo-like)
+            i = RND.randrange(len(toks))
+            w = toks[i]
+            if len(w) >= 4:
+                j = RND.randrange(len(w) - 1)
+                toks[i] = w[:j] + w[j + 1] + w[j] + w[j + 2:]  # adjacent transpose
+                n = ' '.join(toks)
     if RND.random() < 0.2 and len(n) > 6:
         i = RND.randrange(1, len(n) - 1)
         n = n[:i] + n[i + 1:]
@@ -134,6 +176,7 @@ def main(kv):
     print('unseen countries', uc, 'S1', s1.height, flush=True)
     r1 = s1.select('id', 'name', 'addr')
     r2 = recs('test', (2, 3))
+    gw = generic_suffixes(uc) if kv.get('lw', '1') == '1' else None   # lw=0: the original noise (set fra_b1ka, used by cef)
     p = pl.read_parquet(f'{W}/pte_{tag}.parquet').select('id1', 'id2', 'p').join(r1.select(pl.col('id').alias('id1')),
                                                                                 on='id1', how='semi')
     pos, neg = pools(p)
@@ -158,7 +201,7 @@ def main(kv):
         c, d = noise(c, d)
         rows.append((fmt(a, b), fmt(c, d), 0, 's1neg'))
     for a, b in r1.sample(min(r1.height, nsyn), seed=5).select('name', 'addr').iter_rows():
-        c, d = noise(a, b)
+        c, d = noise(a, b, gw)
         rows.append((fmt(a, b), fmt(c, d), 1, 'syn'))
     RND.shuffle(rows)
     res = pl.DataFrame(rows, schema=['t1', 't2', 'y', 'kind'], orient='row')

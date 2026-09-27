@@ -13,9 +13,22 @@ DESC = {'base': 'normalize, test-like split, blocking (top-100 caps), pair featu
         'ka': 'merge ANN candidates (ka set), ANN stage-1 model, context + sibling-support features',
         'cem': 'cross-encoder 2 (multilingual MiniLM, raw text) on the b1ka uncertain band  [GPU]',
         'ceb': 'cross-encoder 3 (bge-reranker-base, raw text) on the b1ka uncertain band  [GPU]',
-        'fin': 'cascade stage-2 LightGBM, final candidate set = stage-1 filter p1 >= 0.005, decision rule tuned on OOF, '
+        'opt': 'Optuna: 30 trials of stage-2 LightGBM parameters -> params_fin.json',
+        'cer': 'cross-encoder 4 (bge-reranker-v2-m3, raw text, 600k pairs) -> used only by the teacher fin2  [GPU]',
+        'fin2': 'teacher stage 2 (tuned params + cer) for the French self-training set',
+        'fra': 'French self-training set: teacher pseudo-labels on unseen-country test pairs + exact S1-S1 negatives + '
+               'noised S1 positives',
+        'fra2': 'French self-training set, second version: the synthetic positives also get the generic last-word '
+                'changes learned from the test records (used by ceqf)',
+        'cef': 'cross-encoder 3b: bge-reranker-base warm start (ceb) + French self-training set + US/India replay  [GPU]',
+        'cer2': 'cross-encoder 5 (bge-reranker-v2-m3, full band recipe)  [GPU]',
+        'ceq': 'cross-encoder 6 (Qwen3-Reranker-4B, LoRA r=16, bf16)  [GPU, large]',
+        'fin5': 'stage 2 twice (with ceb / with cef; both + cer2 + ceq), logit blend tuned on OOF',
+        'ceqf': 'ceq warm start + French self-training set; re-scores only unseen-country test pairs  [GPU, large]',
+        'fin6': 'fin5 fold models re-score the test pairs with ceqf patched in (no retraining)',
+        'out': 'final candidate set = stage-1 filter p1 >= 0.005, decision rule tuned on OOF, unseen-country shift, '
                'write outputs, validate'}
-SUB = {'/scratch/m25csa019/er_out/finc': '$OUT', '/scratch/m25csa019/er_out/fin': '$OUT',
+SUB = {'/scratch/m25csa019/er_out/final': '$OUT',
        '/csehome/m25csa019/amazon_ml/student_resource/utils/validate_submission.py': '$VALIDATOR',
        '/csehome/m25csa019/amazon_ml/student_resource/dataset/test': '$ER_DATA/test'}
 
@@ -27,7 +40,9 @@ for ln in open('jobs/final.dag'):
 out = ['#!/bin/bash',
        '# End-to-end pipeline: raw TSVs -> $OUT/matching_results.tsv + $OUT/candidate_pairs.tsv.',
        '# Generated from jobs/final.dag by jobs/gen_run_all.py (same commands, same order). Steps marked [GPU] need one',
-       '# CUDA GPU (sm_80/sm_86: A30, A6000, A100). CPU steps: 32 CPUs, ~230 GB RAM. On SLURM: python3 jobs/dag.py jobs/final.dag',
+       '# CUDA GPU (A30 / A6000 / A100 / RTX PRO 6000; ceq and ceqf, the 4B reranker, were run on 97 GB RTX PRO 6000 Blackwell).',
+       '# Use the erbw environment (envs/er + torch 2.7.1+cu128 + peft) as $PY. CPU steps: 32 CPUs, ~230 GB RAM.',
+       '# On SLURM: python3 jobs/dag.py jobs/final.dag',
        'set -e',
        'source "$(dirname "$0")/jobs/env.sh"          # ER_DATA, ER_WORK, HF_HOME, PY',
        'OUT=${OUT:-$ER_WORK/out}',

@@ -1,8 +1,9 @@
-# Python 3.11.16. torch wheel: pip install torch==2.5.1 --index-url https://download.pytorch.org/whl/cu121
+# Python 3.11.16. torch wheel: pip install torch==2.7.1 --index-url https://download.pytorch.org/whl/cu128
 huggingface_hub==1.33.0
 lightgbm==4.7.0
 numpy==2.4.6
 optuna==5.0.0
+peft==0.21.0
 pandas==3.0.6
 polars==1.44.2
 polars-runtime-32==1.44.2
@@ -12,7 +13,7 @@ safetensors==0.8.0
 scikit-learn==1.9.1
 scipy==1.17.1
 tokenizers==0.23.2
-torch==2.5.1+cu121
+torch==2.7.1+cu128
 transformers==5.17.0
 Unidecode==1.4.0
 xgboost==3.2.0
