@@ -2,7 +2,7 @@
 #SBATCH -J er_par
 #SBATCH -p mtech
 #SBATCH -c 24
-#SBATCH --mem=100G
+#SBATCH --mem=90G
 #SBATCH -t 04:00:00
 #SBATCH -o /csehome/m25csa019/amazon_ml/er/logs/%x_%j.out
 # CMDS_A and CMDS_B: two ';'-separated python command lists run in parallel (half the CPUs each, logs <job>_a/_b.log),

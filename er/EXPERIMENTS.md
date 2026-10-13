@@ -167,3 +167,86 @@ Notes
   the exact old (empty) state; with the flag set, it returns the learned region. Nothing live has been touched yet
   (n_test_s2/s3.parquet re-normalization, plan step 3, is still pending the user's go-ahead) -- currently this is
   inert code, not applied to any built artifact.
+
+- 27 Sep 18:40 quick fixes from `plan (1).md` (ana/qfix.py; decision layer only, no src/ edits). Q2 on b34c (tsim, base reproduces
+  dec_b34c 0.991082 exactly): per-source caps S2<=5 / S3<=6 (train GT maxima; 16 links removed) +0.000001; count prior
+  (Poisson-binomial PMF of K reweighted by (train histogram / model-implied mean PMF)^lambda, replaces prod(1-q) and sum q
+  in the expected-F rule) lambda 0.5 +0.000001 (3/5 folds), lambda 1 -0.000002 (1/5), with caps +0.000002 / -0.000001.
+  All below the +0.00003 gate -> NOT adopted, no version. The model's implied match-count distribution already matches the
+  generator on US/India; confirms the decision layer is saturated. Train GT constants: singletons 5.58%, zero-S2 13.04%,
+  zero-S3 12.07%, S2/S1 1.674, S3/S1 1.788, P(K=k) 0.056/0.054/0.170/0.241/0.219/0.146/0.075/0.029/0.009/0.002.
+- 18:40 jobs/par.sbatch --mem 100G -> 90G before fz_f5 is submitted: once ceqf replaces ceq on cn07 only ~94 GB stays
+  unallocated there and no other node has 100 GB free, so f5 (fin5) would have waited indefinitely.
+- 18:40 France label-free diag on b34c test (ana/qfix.py diag; seen countries US/India: empty 5.78%, links/S1 3.380, S2 1.638,
+  S3 1.741). France vs fr: -3 empty 6.06% links 3.186 | -2 5.89% 3.239 | -1.5 5.82% 3.260 | -1 5.75% 3.279 | 0 5.63% 3.312.
+  (1) empty-rate match at fr ~ -1.2 for b34c (fin's LB optimum -2 was where empties matched; newer CE stack is less
+  over-confident on France) -> Q1 version at the matched fr for the final model, LB probe only (plateau -1..-3 on fin).
+  (2) S2 and S3 deficits are proportional (-4.0% / -4.3% at fr=-2) -> no per-source bias, Q4 per-source fr DROPPED.
+  (3) France is under-linked at EVERY fr (3.31 vs 3.38 even at fr=0, with a lower empty rate): partial recall inside
+  matched French S1, which no global shift fixes -> model-side (ceqf), not calibration.
+- 18:47 ceq COMPLETED: merged band AUC 0.98563 (h0 0.98563, h1 0.98563; stage-1 p 0.9697) -> best CE (cer2 0.9839).
+  sup3 (sibling support from fin3 stage-2 OOF/pte, sib_thr 0.9, thr 0 = the exact cascade row set) built: 6.0M siblings,
+  26.5M comparisons tsim -> W/sup3_ka_{tsim,test}.parquet (for Q5 = fin5a retrained with sup3 instead of sup).
+- 18:5x RESOURCE BLOCK: fz_f5 (41941, 24 CPU) could not fit any node (cn07 left 12 CPU / 27 GB after ceqf 16 CPU / 200 GB
+  + other users; scheduler ETA 01:41 Sep 28 = after the deadline). Measured stage-2 peaks: fz_f3 18.2 GB, fz_f4 22.5 GB
+  (sacct MaxRSS) -> f5 memory lowered to 60G (scontrol). ceq's 231 GB summed RSS vs its 200 GB limit shows most of it is
+  shared memory of the forked loader workers. ceqf 41515 was CANCELLED ~5 min in and resubmitted as 41942 with identical
+  ARGS/MERGE via jobs/gpu2bw.sbatch but -c 4 --mem=140G -w cn07 (frees the 24 CPU / 60 GB f5 needs). bw_retry.sh for
+  ceqf exits on CANCELLED, so 41942 has no automatic retry if it lands on a non-Blackwell GPU (exit 3). TO VERIFY.
+- 20:07 fin5 (stage 2 + ceq): fin5a 0.991275 / fin5b 0.991275 (vs fin3 0.991115: +0.000160); blend fin5 (0.8/0.2) 0.991276;
+  fold check vs b34: +0.000154 all folds, every fold positive (+0.000126..+0.000180), US +0.000171, India +0.000129.
+  Released fin5c (OOF 0.991231, US 0.990842, India 0.991815; vs b34c 0.991082: +0.000149) and fin5c_frm2 (fr=-2),
+  both validator PASS, 7,739,003 candidate pairs (4.47/S1), 5,815,975 links. -> UPLOAD #1 = submissions/fin5c_frm2.
+  Expected LB ~0.8503 x (0.991231 + 0.00054) + 0.1497 x F_France = 0.9878 (France 0.965) .. 0.9885 (France 0.970).
+- 20:06 fin56.dag w6 submit FAILED (8 h waiter on the default `test` partition, max 1 h) -> f6 skipped by the runner.
+  f6 submitted manually with the identical commands: fz_f6 41947, afterok:41942 (ceqf), -c 16 --mem=40G.
+- 20:20 released fin5_frm2 = fin5 UN-pruned (candidate_pairs = stage-2 cascade set p1>=0.001, 9,187,520 pairs, 5.30/S1) + fr=-2: OOF 0.991276, 5,816,637 links, validator PASS -> UPLOAD #1 (user). fin5c_frm2 (pruned, 4.47/S1, OOF 0.991231) = upload #2.
+- 20:48 Q5 (sibling support recomputed from fin3 stage-2 scores = sup3, fin5a retrained as fin5sa): fin5sa 0.991301 vs fin5a
+  0.991275 (+0.000027; folds +0.000036 +0.000032 +0.000044 +0.000021 -0.000000; US +0.000025, India +0.000029); blend
+  fin5s (fin5sa 0.8 / fin5b 0.2) 0.991298; pruned fin5sc 0.991250 vs fin5c 0.991231 = +0.000019, 5/5 folds positive
+  (+0.000030 +0.000015 +0.000037 +0.000011 +0.000002), US +0.000017, India +0.000021 -> step-3 WINNER (handoff rule: best tsim,
+  >= 3/5 folds). Decision tune moved m 0.5 -> 1.0.
+  Q3 (fin5 + b34 logit blend, 0.8/0.2): b534c 0.991234 vs fin5c +0.000003, folds -0.000007 +0.000001 +0.000021 -0.000004
+  +0.000003 (3/5), US -0.000000 -> NOT adopted.
+  Q1 on fin5c: France empty rate matches US/India at fr ~ -0.8 (b34c ~ -1.2; current -2).
+- 20:49 q_pc (41950): release fin5sc_frm2, then A1 pcdec tune on fin5sc and fin5c. q_f6s queued by watcher after ceqf:
+  fin5sa re-scored with ceqf (fin6sa, predict only) + fin6b -> fin6s -> fin6sc -> fin6sc_frm2 + diff_country + France diag.
+- 20:55 LB fin5_frm2 (fin5 unpruned + fr=-2) = 0.987997 = NEW TEAM BEST (prev 0.987862, +0.000135). Implied France ~0.9663 (fin_frm2 0.9615, cx1 0.9639): ceq moved France ~+0.0024 over cx1 and ~+0.005 over fin.
+- 20:55 released fin5s_frm2 (unpruned fin5s + fr=-2): tsim 0.991298, PASS, 5,818,944 links; vs fin5_frm2 (LB 0.987997) 4,536 rows differ (FR 2324 / IN 932 / US 1280) -> upload #2 candidate (+A1 if it passes). Step-4 job now also releases unpruned fin6s_frm2 (the LB-proven candidate set) besides fin6sc_frm2.
+- 20:57 A1 per-country decision (ana/pcdec.py, 61 configs/country, CV = config chosen on 4 folds): fin5sc +0.000005 (both
+  countries picked the SAME config a 0.9 / floor 0.01, i.e. a global tweak; 4/5 folds) but fin5c CV -0.000007 (0/5 folds,
+  in-sample +0.000000) -> sign flips between near-identical bases = noise -> A1 NOT adopted, no upload. A5 (runner-up >= 0.9
+  for unassigned records) -0.000002 on both -> NOT adopted. Decision layer confirmed saturated.
+- 21:05 fin5s vs fin5 (the LB-0.987997 base): +0.000022, 5/5 folds (+0.000031 +0.000021 +0.000041 +0.000018 +0.000002),
+  US +0.000021, India +0.000024 -> fin5s_frm2 = UPLOAD #2. France diag on fin5s: France empty rate = US/India (5.78%) at
+  fr ~ -0.35 (fin -2, b34c -1.2, fin5c -0.8): newer models are ever less over-confident on France -> one fr probe
+  (matched value) on the final fin6s = upload #4. France stays under-linked at every fr (3.31 vs 3.38 links/S1 at fr=0).
+- 21:07 step 4 re-plumbed for speed: f6 41947 (fin6a+fin6b + fin6 chain, no longer needed since the upload line is fin5s) cancelled; q_p6b 41953 (fin5b models re-score test with ceqf -> fin6b) and q_p6sa 41954 (fin5sa -> fin6sa) run in parallel afterok ceqf 41942; watcher3 submits q_f6s (blend fin6s -> fin6s_frm2 unpruned + fin6sc_frm2 pruned, diff_country vs fin5s(c)_frm2, France diag on fin6s) afterok both. ETA fin6s_frm2 ~22:25.
+- 21:15 L3 (plan (1).md IV.2, per-country stage 2) using the idle CPU slot while ceqf scores: new ana/pcsub.py writes country keep-lists (tsim US 4,928,843 / India 3,265,904 pairs; test US 3,205,383 / India 3,874,556) so src/train.py sub=oof_b1ka_<c>:pte_b1ka_<c>:0.001 trains fin5sa's config per country (same folds). q_l3 41959: pcus || pcin -> blend fin5s+pcus+pcin (fin5sp) -> cmp_folds vs fin5s. France keeps the pooled model. To free a submit slot the pending q_p6b/q_p6sa were cancelled; watcher4 submits one par job q_f6 when ceqf COMPLETES: fin6b || fin6sa re-score, then fin6s_frm2 / fin6sc_frm2 releases, diff_country, France diag, and fin6sp_frm2 (= fin6s + L3) for use only if L3 passes its gate.
+- 21:30 L1 gate (ana/xlgate.py on fin5s, tsim): India true pairs latin 2,032,361 recall 0.9720 (blocked 1.53%, missed in cands 1.28%, false-link rate 0.14%) vs native-script 446,706 recall 0.9969 (blocked 0.21%, missed 0.10%, FP 0.03%) -> native-script India is the BEST-served slice; no matched tsim record has unknown native tokens (dictionary learned in-sample). Records with unknown native tokens: tsim 1.55% vs test 2.57% of India S2/S3 (+1.0 pt, all still read raw by cer2/ceq/ceqf) -> L1 FAILS the gate, not built.
+- 21:55 N4 text-view TTA on ceqf (ana/ce_tta.py; GPU q_tta 41969): French band test pairs whose S2/S3 raw text has spurious accents / non-ASCII or an all-caps name (432,279 of 908,542 = 47.6%) re-scored by both ceqf halves on a folded view (unidecode + lowercase, both records); score = mean(raw, folded). Merge -> ceqft_b1ka_test; then patch alias ceqft:ceq into fin5sa/fin5b (predict only) -> fin7s_frm2 (France rows only change vs fin6s). cer2f (plan B1) impossible: cer2 was trained with save=0 (no weights).
+- 21:58 L3 per-country stage 2: fin5sp (0.4 pooled + 0.3 US model + 0.3 India model) 0.991304 vs fin5s 0.991298 = +0.000006, folds +0.000015 +0.000011 +0.000019 -0.000018 +0.000004, US +0.000013, India -0.000004 -> NOT adopted (country worse, below bar). q_f7 41970 (afterok q_tta): fin7sa/fin7b predict with ceqft -> fin7s_frm2.
+- 21:48 fin6s_frm2 released (fin5s + ceqf patched on French test pairs, unpruned, fr=-2): PASS, 5,826,291 links; vs fin5s_frm2
+  only France changed (11,336 rows; US/India 0). fin6sc_frm2 (pruned) same, France 11,321. France diag on fin6s: empty rate
+  = US/India at fr ~ -1.4 (fin5s -0.35: ceqf makes France more match-happy); under-linking shrinks (-0.119 links/S1 at fr=-2
+  vs -0.147 for fin5s).
+- 21:56 TEAM MERGE inputs from m25csa011 (export tar md5 52b5fe15faaa08a9cbc55886b51a311e verified; extracted to
+  /scratch/m25csa019/friend_import, copied as oof_/pte_/dec_k{bl1,cxQ,blSf}): bl1 tsim 0.991336 (LB 0.987655 -> implied France
+  ~0.9637), cxQ tsim 0.991508 (their best; cx + cxs + our ceq + their French bge CE cfr + 1.66M French pseudo-label aux rows),
+  blSf 0.991359 (no Qwen). Key overlap with our fin5s 100.000% on tsim and test for all three, tsim labels identical; corr(p)
+  cxQ vs fin5s 0.9986. Complementary: theirs stronger on US/India (+0.00021 tsim), ours on France (+0.0026 France F).
+  q_mx 41971: blend kcxQ+fin6s -> mx6 (tune, fold checks vs both parents), release mx6_frm2, diff_country, France diag,
+  then 3-way kcxQ+fin6s+kblSf -> mx6b.
+- 22:04 TEAM MERGE 1: mx6 = 0.7 x friend cxQ + 0.3 x our fin6s (blend.py grid, tuned on tsim OOF): tsim 0.991528 (US 0.991122,
+  India 0.992135; m 0.0) vs cxQ +0.000020 (5/5 folds, US +0.000027, India +0.000008) and vs fin6s +0.000230 (5/5).
+  Released mx6_frm2: PASS, 5,830,448 links; vs fin6s_frm2 France 13,032 / India 4,179 / US 3,708 rows. France diag: empty
+  rate = US/India at fr ~ -1.1. 3-way +blSf (0.7/0.15/0.15) 0.991523 < mx6 -> rejected.
+- 22:12 friend 3 (Kushal) export via Google Drive (tar md5 1285a800972b5923f8d64364414a29d6, extracted in isolation to
+  /scratch/m25csa019/friend3_import; its extras/code/*.py NOT run or copied): fx = LB 0.987862 (team best before tonight),
+  tsim 0.99112, uploaded with fr=-2 AND norm1=1.0 (their decide.py one-to-one normalisation, not in our code); implied
+  France ~0.9663. Copied as oof_/pte_/dec_kfx. q_tb3 41973: ana/kcheck.py gate -> ana/wblend.py kcxQ+fin6s+kfx (simplex
+  weights on tsim; France = equal weights) -> tb3_frm2 release + diff vs mx6_frm2 + France diag.
+- 22:20 q_tb3 (41973): kfx gate PASS (rows exact, 100% keys, labels identical; corr 0.9991 fin6s / 0.9982 kcxQ). wblend best seen weights cxQ 0.7 / fin6s 0.3 / fx 0.0 = 0.991528 (= mx6 exactly on US/India; fx adds nothing on tsim); France = equal thirds. tb3_frm2 validator PASS, 5.8M links; job then failed at snap (';' inside the desc split CMDS) -> redone in 41976. /csehome down to 2.5 GB: 10 superseded submission folders (b34c*, fin2*c*, fin3c*, fin4c*, finc) moved to /scratch/m25csa019/sub_archive with md5 check -> 4.6 GB free.
+- 22:52 mx7_frm2 = friend cxQ 0.7 + our fin7s 0.3 (fin7s = fin6s + ceqf text-view TTA; weights re-tuned: same 0.7/0.3): tsim 0.991528 (= mx6), PASS, 5,830,392 links; vs mx6_frm2 only 124 French rows differ (US/India 0) -> practically identical to mx6; TTA's effect is diluted to 0.3 and touched only 969 French rows in fin7s. fin7s_frm2 vs fin6s_frm2: 969 French rows. A separate session/user also released fin7s_frm1.5 (fin7s, fr=-1.5) at 22:50 (jobs q_f7r15 41978 failed on ER_WORK, 41979 OK).
+- 23:50 export_for_kushal.tar (fin5 = LB-0.987997 stage 2, raw p, for teammate blend; md5 dd3019ea1d4c189fee0a432283d02975) locally tested with new ana/xtest.sbatch (job 41993, PASS): md5 OK; kcheck rows 8,194,747 / 9,187,520, keys 100%, p bit-identical to er_final (max|dp| 0); shipped oof + shipped dec -> tsim 0.9912756 (US 0.9908797, India 0.9918688), per-fold diff 0; decide.py apply shipped pte + dec + fr=-2 -> matching_results.tsv BYTE-IDENTICAL to versions/fin5_frm2 (5,816,637 links), validator PASS. dec has no fr key (fr=-2 is an apply arg); decide always runs one2one (margin 0.3) before ef.
+- 00:27 (28 Sep) architecture.md written for the team best tb5_frm2 (LB 0.98834): shared pipeline -> 3 stage-2 members (fin5s / cxQ / fx) -> logit team blend (US/India 0.7/0.3/0, France thirds) -> decision (fr=-2, one2one 0.3, ef m=0); reproduction commands for fin3 -> sup3 -> fin5sa -> fin5s -> wblend/tb5 -> qfix apply. Documentation.md still has TBDs and a stale final (fin6c, p1>=0.005).
